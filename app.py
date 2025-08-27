@@ -154,77 +154,97 @@ if uploaded_file is not None:
                     if valor != "Todos": df_filtrado = df_filtrado[df_filtrado[coluna].astype(str) == valor]
 
         st.header("Resultados da Análise")
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Total de Cortes Carregados", len(df_completo))
-        col2.metric("Cortes na Seleção Atual", len(df_filtrado))
         
         if not df_filtrado.empty:
-            gdf_filtrado = gpd.GeoDataFrame(df_filtrado, geometry=gpd.points_from_xy(df_filtrado.longitude, df_filtrado.latitude), crs="EPSG:4326")
-            
-            nni_valor_final = None; is_media_nni = False
-            
-            centros_operativos_selecionados = gdf_filtrado['centro_operativo'].unique()
-            if len(centros_operativos_selecionados) == 1 or len(gdf_filtrado) < 5000:
-                nni_valor_final, nni_texto = calcular_nni_otimizado(gdf_filtrado)
-            else:
-                is_media_nni = True; resultados_nni = []; pesos = []
-                for co in centros_operativos_selecionados:
-                    gdf_co = gdf_filtrado[gdf_filtrado['centro_operativo'] == co]
-                    if len(gdf_co) > 10:
-                        nni, texto = calcular_nni_otimizado(gdf_co)
-                        if nni is not None: resultados_nni.append(nni); pesos.append(len(gdf_co))
-                if resultados_nni:
-                    nni_valor_final = np.average(resultados_nni, weights=pesos)
-                    if nni_valor_final < 1: nni_texto = f"Agrupado (Média: {nni_valor_final:.2f})"
-                    elif nni_valor_final > 1: nni_texto = f"Disperso (Média: {nni_valor_final:.2f})"
-                    else: nni_texto = f"Aleatório (Média: {nni_valor_final:.2f})"
-                else: nni_texto = "Insuficiente para cálculo"
-            
-            col3.metric("Padrão de Dispersão", nni_texto)
-            
+            # Parâmetros de Cluster (movidos para cima para estarem disponíveis para ambas as abas)
             st.sidebar.markdown("### Parâmetros de Cluster")
             eps_cluster_km = st.sidebar.slider("Raio do Cluster (km)", 0.1, 5.0, 1.0, 0.1)
             min_samples_cluster = st.sidebar.slider("Mínimo de Pontos por Cluster", 2, 20, 5, 1)
-            
-            gdf_com_clusters = executar_dbscan(gdf_filtrado, eps_km=eps_cluster_km, min_samples=min_samples_cluster)
-            n_clusters = len(set(gdf_com_clusters['cluster'])) - (1 if -1 in gdf_com_clusters['cluster'] else 0)
-            n_ruido = list(gdf_com_clusters['cluster']).count(-1)
-            
-            with st.expander("🔍 O que estes números significam? Clique para ver a análise", expanded=True):
-                 resumo_html = gerar_resumo_didatico(nni_valor_final, n_clusters, is_media=is_media_nni)
-                 st.markdown(resumo_html, unsafe_allow_html=True)
-            
-            st.subheader(f"Análise de Clusters: {n_clusters} hotspots encontrados")
-            
-            # ===============================================================
-            # AQUI ESTÃO AS NOVAS MÉTRICAS DE PORCENTAGEM
-            # ===============================================================
-            total_pontos = len(gdf_com_clusters)
-            if total_pontos > 0:
-                percent_agrupados = (total_pontos - n_ruido) / total_pontos * 100
-                percent_dispersos = n_ruido / total_pontos * 100
-                
-                col_agrup, col_disp = st.columns(2)
-                col_agrup.metric(label="% de Serviços Agrupados", value=f"{percent_agrupados:.1f}%",
-                                 help="Porcentagem de serviços que fazem parte de um hotspot.")
-                col_disp.metric(label="% de Serviços Dispersos", value=f"{percent_dispersos:.1f}%",
-                                help="Porcentagem de serviços que estão isolados e não pertencem a nenhum hotspot.")
 
-            st.write(f"Foram encontrados **{n_clusters} clusters** e **{n_ruido} pontos isolados**.")
-            
-            if not gdf_com_clusters.empty:
-                map_center = [gdf_com_clusters.latitude.mean(), gdf_com_clusters.longitude.mean()]
-                m = folium.Map(location=map_center, zoom_start=11)
-                unique_clusters = sorted(gdf_com_clusters['cluster'].unique()); colors = ['#%06X' % np.random.randint(0, 0xFFFFFF) for i in range(len(unique_clusters))]
-                cluster_colors = {cluster_id: color for cluster_id, color in zip(unique_clusters, colors)}
+            # Executa a análise de cluster UMA VEZ para ser usada em todas as abas
+            gdf_com_clusters = executar_dbscan(
+                gpd.GeoDataFrame(df_filtrado, geometry=gpd.points_from_xy(df_filtrado.longitude, df_filtrado.latitude), crs="EPSG:4326"),
+                eps_km=eps_cluster_km, 
+                min_samples=min_samples_cluster
+            )
+
+            # Cria as abas
+            tab1, tab2 = st.tabs(["🗺️ Análise Geográfica e Mapa", "📊 Resumo por Centro Operativo"])
+
+            # ===============================================================
+            # CONTEÚDO DA ABA 1: ANÁLISE GEOGRÁFICA
+            # ===============================================================
+            with tab1:
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Total de Cortes Carregados", len(df_completo))
+                col2.metric("Cortes na Seleção Atual", len(df_filtrado))
                 
-                for idx, row in gdf_com_clusters.iterrows():
-                    cluster_id = row['cluster']; color = cluster_colors.get(cluster_id, '#000000') if cluster_id != -1 else '#000000'
-                    popup_text = ""
-                    for col in ['prioridade', 'centro_operativo', 'corte_recorte']:
-                        if col in row: popup_text += f"{col.replace('_', ' ').title()}: {str(row[col])}<br>"
-                    folium.CircleMarker(location=[row['latitude'], row['longitude']], radius=5, color=color, fill=True, fill_color=color, fill_opacity=0.7, popup=popup_text).add_to(m)
-                st_folium(m, width=725, height=500, returned_objects=[])
+                nni_valor_final = None; is_media_nni = False
+                centros_operativos_selecionados = gdf_com_clusters['centro_operativo'].unique()
+                if len(centros_operativos_selecionados) == 1 or len(gdf_com_clusters) < 5000:
+                    nni_valor_final, nni_texto = calcular_nni_otimizado(gdf_com_clusters)
+                else:
+                    is_media_nni = True; resultados_nni = []; pesos = []
+                    for co in centros_operativos_selecionados:
+                        gdf_co = gdf_com_clusters[gdf_com_clusters['centro_operativo'] == co]
+                        if len(gdf_co) > 10:
+                            nni, texto = calcular_nni_otimizado(gdf_co)
+                            if nni is not None: resultados_nni.append(nni); pesos.append(len(gdf_co))
+                    if resultados_nni:
+                        nni_valor_final = np.average(resultados_nni, weights=pesos)
+                        if nni_valor_final < 1: nni_texto = f"Agrupado (Média: {nni_valor_final:.2f})"
+                        elif nni_valor_final > 1: nni_texto = f"Disperso (Média: {nni_valor_final:.2f})"
+                        else: nni_texto = f"Aleatório (Média: {nni_valor_final:.2f})"
+                    else: nni_texto = "Insuficiente para cálculo"
+                
+                col3.metric("Padrão de Dispersão", nni_texto)
+                
+                n_clusters = len(set(gdf_com_clusters['cluster'])) - (1 if -1 in gdf_com_clusters['cluster'] else 0)
+                n_ruido = list(gdf_com_clusters['cluster']).count(-1)
+
+                with st.expander("🔍 O que estes números significam? Clique para ver a análise", expanded=True):
+                     resumo_html = gerar_resumo_didatico(nni_valor_final, n_clusters, is_media=is_media_nni)
+                     st.markdown(resumo_html, unsafe_allow_html=True)
+                
+                st.subheader(f"Mapa de Clusters: {n_clusters} hotspots encontrados")
+                st.write(f"Na seleção atual, foram encontrados **{n_clusters} clusters** e **{n_ruido} pontos isolados**.")
+
+                if not gdf_com_clusters.empty:
+                    map_center = [gdf_com_clusters.latitude.mean(), gdf_com_clusters.longitude.mean()]
+                    m = folium.Map(location=map_center, zoom_start=11)
+                    unique_clusters = sorted(gdf_com_clusters['cluster'].unique()); colors = ['#%06X' % np.random.randint(0, 0xFFFFFF) for i in range(len(unique_clusters))]
+                    cluster_colors = {cluster_id: color for cluster_id, color in zip(unique_clusters, colors)}
+                    
+                    for idx, row in gdf_com_clusters.iterrows():
+                        cluster_id = row['cluster']; color = cluster_colors.get(cluster_id, '#000000') if cluster_id != -1 else '#000000'
+                        popup_text = ""
+                        for col in ['prioridade', 'centro_operativo', 'corte_recorte']:
+                            if col in row: popup_text += f"{col.replace('_', ' ').title()}: {str(row[col])}<br>"
+                        folium.CircleMarker(location=[row['latitude'], row['longitude']], radius=5, color=color, fill=True, fill_color=color, fill_opacity=0.7, popup=popup_text).add_to(m)
+                    st_folium(m, width=725, height=500, returned_objects=[])
+
+            # ===============================================================
+            # CONTEÚDO DA ABA 2: RESUMO POR CENTRO OPERATIVO
+            # ===============================================================
+            with tab2:
+                st.subheader("Análise de Cluster por Centro Operativo")
+                
+                # Agrupando os dados por centro operativo para calcular as métricas
+                resumo_co = gdf_com_clusters.groupby('centro_operativo').apply(lambda x: pd.Series({
+                    'Total de Serviços': len(x),
+                    'Nº Agrupados': len(x[x['cluster'] != -1]),
+                    'Nº Dispersos': len(x[x['cluster'] == -1])
+                })).reset_index()
+
+                # Calculando as porcentagens
+                resumo_co['% Agrupados'] = (resumo_co['Nº Agrupados'] / resumo_co['Total de Serviços'] * 100).round(1)
+                resumo_co['% Dispersos'] = (resumo_co['Nº Dispersos'] / resumo_co['Total de Serviços'] * 100).round(1)
+                
+                # Reordenando as colunas para melhor visualização
+                resumo_co = resumo_co[['centro_operativo', 'Total de Serviços', 'Nº Agrupados', '% Agrupados', 'Nº Dispersos', '% Dispersos']]
+                
+                st.dataframe(resumo_co, use_container_width=True)
+
         else:
             st.warning("Nenhum dado para exibir com os filtros atuais.")
 else:
