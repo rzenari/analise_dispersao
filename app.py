@@ -10,7 +10,6 @@ from scipy.spatial import distance
 from math import sqrt
 import folium
 from streamlit_folium import st_folium
-# IMPORTANTE: Nova importação para o plugin de cluster no mapa
 from folium.plugins import MarkerCluster
 
 # ==============================================================================
@@ -200,6 +199,27 @@ if uploaded_file is not None:
                 with st.expander("🔍 O que estes números significam? Clique para ver a análise", expanded=True):
                      resumo_html = gerar_resumo_didatico(nni_valor_final, n_clusters_total, is_media=is_media_nni)
                      st.markdown(resumo_html, unsafe_allow_html=True)
+
+                # ===============================================================
+                # NOVA SEÇÃO: RESUMO DA ANÁLISE DE CLUSTER NA ABA PRINCIPAL
+                # ===============================================================
+                st.subheader("Resumo da Análise de Cluster")
+                total_pontos = len(gdf_com_clusters)
+                n_ruido = list(gdf_com_clusters['cluster']).count(-1)
+                n_agrupados = total_pontos - n_ruido
+
+                if total_pontos > 0:
+                    percent_agrupados = (n_agrupados / total_pontos) * 100
+                    percent_dispersos = (n_ruido / total_pontos) * 100
+                    
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Nº de Hotspots (Clusters)", f"{n_clusters_total}")
+                    
+                    sub_c1, sub_c2 = st.columns(2)
+                    sub_c1.metric("Nº Agrupados", f"{n_agrupados}", help="Total de serviços que fazem parte de um hotspot.")
+                    sub_c1.metric("% Agrupados", f"{percent_agrupados:.1f}%")
+                    sub_c2.metric("Nº Dispersos", f"{n_ruido}", help="Total de serviços isolados, que não pertencem a nenhum hotspot.")
+                    sub_c2.metric("% Dispersos", f"{percent_dispersos:.1f}%")
                 
                 st.subheader(f"Mapa Interativo de Hotspots")
                 st.write("Dê zoom no mapa para expandir os agrupamentos e ver os pontos individuais.")
@@ -207,23 +227,13 @@ if uploaded_file is not None:
                 if not gdf_com_clusters.empty:
                     map_center = [gdf_com_clusters.latitude.mean(), gdf_com_clusters.longitude.mean()]
                     m = folium.Map(location=map_center, zoom_start=11)
-                    
-                    # ===============================================================
-                    # LÓGICA ATUALIZADA PARA USAR MARKER CLUSTER
-                    # ===============================================================
-                    # Cria um objeto MarkerCluster e o adiciona ao mapa.
                     marker_cluster = MarkerCluster().add_to(m)
 
-                    # Adiciona cada ponto ao OBJETO a MarkerCluster, não ao mapa diretamente.
                     for idx, row in gdf_com_clusters.iterrows():
                         popup_text = ""
                         for col in ['prioridade', 'centro_operativo', 'corte_recorte']:
                             if col in row: popup_text += f"{col.replace('_', ' ').title()}: {str(row[col])}<br>"
-                        
-                        folium.Marker(
-                            location=[row['latitude'], row['longitude']],
-                            popup=popup_text
-                        ).add_to(marker_cluster) # Adiciona ao cluster
+                        folium.Marker(location=[row['latitude'], row['longitude']], popup=popup_text).add_to(marker_cluster)
                     
                     st_folium(m, width=725, height=500, returned_objects=[])
 
