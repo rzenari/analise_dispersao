@@ -171,9 +171,6 @@ if uploaded_file is not None:
                 min_samples=min_samples_cluster
             )
 
-            # ===============================================================
-            # CRIAÇÃO DAS ABAS, AGORA INCLUINDO "METODOLOGIA"
-            # ===============================================================
             tab1, tab2, tab3 = st.tabs(["🗺️ Análise Geográfica e Mapa", "📊 Resumo por Centro Operativo", "💡 Metodologia"])
 
             with tab1:
@@ -235,7 +232,11 @@ if uploaded_file is not None:
                         for col in ['prioridade', 'centro_operativo', 'corte_recorte']:
                             if col in row: popup_text += f"{col.replace('_', ' ').title()}: {str(row[col])}<br>"
                         folium.Marker(location=[row['latitude'], row['longitude']], popup=popup_text).add_to(marker_cluster)
-                    st_folium(m, width=725, height=500, returned_objects=[])
+                    
+                    # ===============================================================
+                    # AQUI ESTÁ A MUDANÇA: Mapa ocupando toda a largura e mais alto
+                    # ===============================================================
+                    st_folium(m, use_container_width=True, height=700, returned_objects=[])
 
             with tab2:
                 st.subheader("Análise de Cluster por Centro Operativo")
@@ -253,10 +254,7 @@ if uploaded_file is not None:
                 resumo_co = resumo_co[['centro_operativo', 'Total de Serviços', 'Nº de Clusters', 'Nº Agrupados', '% Agrupados', 'Nº Dispersos', '% Dispersos']]
                 
                 st.dataframe(resumo_co, use_container_width=True)
-                
-            # ===============================================================
-            # CONTEÚDO DA NOVA ABA "METODOLOGIA"
-            # ===============================================================
+            
             with tab3:
                 st.subheader("As Metodologias por Trás da Análise")
                 st.markdown("""
