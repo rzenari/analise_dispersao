@@ -140,35 +140,18 @@ if uploaded_file is not None:
                 lista_unica = df_completo[coluna].dropna().unique().tolist()
                 opcoes = sorted([str(item) for item in lista_unica])
                 
-                # ===============================================================
-                # AQUI ESTÁ A MUDANÇA PARA SELEÇÃO MÚLTIPLA
-                # ===============================================================
                 if coluna == 'prioridade':
-                    valores_selecionados[coluna] = st.sidebar.multiselect(
-                        f"{coluna.replace('_', ' ').title()}", 
-                        opcoes
-                    )
+                    valores_selecionados[coluna] = st.sidebar.multiselect(f"{coluna.replace('_', ' ').title()}", opcoes)
                 else:
-                    # Mantém o selectbox para os outros filtros
-                    valores_selecionados[coluna] = st.sidebar.selectbox(
-                        f"{coluna.replace('_', ' ').title()}", 
-                        ["Todos"] + opcoes
-                    )
+                    valores_selecionados[coluna] = st.sidebar.selectbox(f"{coluna.replace('_', ' ').title()}", ["Todos"] + opcoes)
 
         df_filtrado = df_completo.copy()
         for coluna, valor in valores_selecionados.items():
             if coluna in df_filtrado.columns:
-                # ===============================================================
-                # LÓGICA DE FILTRAGEM ATUALIZADA
-                # ===============================================================
                 if coluna == 'prioridade':
-                    # Se uma ou mais prioridades foram selecionadas, filtra por elas
-                    if valor: # 'valor' agora é uma lista
-                        df_filtrado = df_filtrado[df_filtrado[coluna].astype(str).isin(valor)]
+                    if valor: df_filtrado = df_filtrado[df_filtrado[coluna].astype(str).isin(valor)]
                 else:
-                    # Lógica antiga para os outros filtros
-                    if valor != "Todos":
-                        df_filtrado = df_filtrado[df_filtrado[coluna].astype(str) == valor]
+                    if valor != "Todos": df_filtrado = df_filtrado[df_filtrado[coluna].astype(str) == valor]
 
         st.header("Resultados da Análise")
         col1, col2, col3 = st.columns(3)
@@ -206,12 +189,27 @@ if uploaded_file is not None:
             gdf_com_clusters = executar_dbscan(gdf_filtrado, eps_km=eps_cluster_km, min_samples=min_samples_cluster)
             n_clusters = len(set(gdf_com_clusters['cluster'])) - (1 if -1 in gdf_com_clusters['cluster'] else 0)
             n_ruido = list(gdf_com_clusters['cluster']).count(-1)
-
+            
             with st.expander("🔍 O que estes números significam? Clique para ver a análise", expanded=True):
                  resumo_html = gerar_resumo_didatico(nni_valor_final, n_clusters, is_media=is_media_nni)
                  st.markdown(resumo_html, unsafe_allow_html=True)
             
-            st.subheader(f"Mapa de Clusters: {n_clusters} hotspots encontrados")
+            st.subheader(f"Análise de Clusters: {n_clusters} hotspots encontrados")
+            
+            # ===============================================================
+            # AQUI ESTÃO AS NOVAS MÉTRICAS DE PORCENTAGEM
+            # ===============================================================
+            total_pontos = len(gdf_com_clusters)
+            if total_pontos > 0:
+                percent_agrupados = (total_pontos - n_ruido) / total_pontos * 100
+                percent_dispersos = n_ruido / total_pontos * 100
+                
+                col_agrup, col_disp = st.columns(2)
+                col_agrup.metric(label="% de Serviços Agrupados", value=f"{percent_agrupados:.1f}%",
+                                 help="Porcentagem de serviços que fazem parte de um hotspot.")
+                col_disp.metric(label="% de Serviços Dispersos", value=f"{percent_dispersos:.1f}%",
+                                help="Porcentagem de serviços que estão isolados e não pertencem a nenhum hotspot.")
+
             st.write(f"Foram encontrados **{n_clusters} clusters** e **{n_ruido} pontos isolados**.")
             
             if not gdf_com_clusters.empty:
