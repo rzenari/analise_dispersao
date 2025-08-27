@@ -89,16 +89,12 @@ def executar_dbscan(gdf, eps_km=0.5, min_samples=3):
     gdf['cluster'] = db.labels_
     return gdf
 
-# ==============================================================================
-# FUNÇÃO DE RESUMO DIDÁTICO ATUALIZADA (MAIS INTELIGENTE)
-# ==============================================================================
 def gerar_resumo_didatico(nni_valor, n_clusters, percent_dispersos, is_media=False):
     """Gera um texto interpretativo considerando tanto o NNI quanto a % de dispersão."""
     if nni_valor is None: return ""
     
     prefixo = "Na média, o padrão" if is_media else "O padrão"
 
-    # Nova lógica: primeiro verifica se a maioria é dispersa
     if percent_dispersos > 50:
         titulo = "⚠️ **Padrão Misto (Agrupamentos Isolados)**"
         obs = f"Apesar da existência de **{n_clusters} hotspots**, a maioria dos serviços (**{percent_dispersos:.1f}%**) está **dispersa** pela região."
@@ -200,7 +196,11 @@ if uploaded_file is not None:
                         else: nni_texto = f"Aleatório (Média: {nni_valor_final:.2f})"
                     else: nni_texto = "Insuficiente para cálculo"
                 
-                col3.metric("Padrão de Dispersão (NNI)", nni_texto)
+                # ===============================================================
+                # AQUI ESTÁ A MUDANÇA: Adicionando a legenda (help)
+                # ===============================================================
+                help_nni = "O Índice do Vizinho Mais Próximo (NNI) mede se o padrão dos pontos é agrupado, disperso ou aleatório. NNI < 1: Agrupado (pontos mais próximos que o esperado). NNI ≈ 1: Aleatório (sem padrão). NNI > 1: Disperso (pontos mais espalhados que o esperado)."
+                col3.metric("Padrão de Dispersão (NNI)", nni_texto, help=help_nni)
                 
                 n_clusters_total = len(set(gdf_com_clusters['cluster'])) - (1 if -1 in gdf_com_clusters['cluster'] else 0)
                 total_pontos = len(gdf_com_clusters)
@@ -210,7 +210,7 @@ if uploaded_file is not None:
                 with st.expander("🔍 O que estes números significam? Clique para ver a análise", expanded=True):
                      resumo_html = gerar_resumo_didatico(nni_valor_final, n_clusters_total, percent_dispersos, is_media=is_media_nni)
                      st.markdown(resumo_html, unsafe_allow_html=True)
-                
+
                 st.subheader("Resumo da Análise de Cluster")
                 n_agrupados = total_pontos - n_ruido
                 if total_pontos > 0:
