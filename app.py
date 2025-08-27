@@ -10,6 +10,8 @@ from scipy.spatial import distance
 from math import sqrt
 import folium
 from streamlit_folium import st_folium
+# IMPORTANTE: Nova importação para o plugin de cluster no mapa
+from folium.plugins import MarkerCluster
 
 # ==============================================================================
 # 2. CONFIGURAÇÃO DA PÁGINA E TÍTULOS
@@ -199,28 +201,35 @@ if uploaded_file is not None:
                      resumo_html = gerar_resumo_didatico(nni_valor_final, n_clusters_total, is_media=is_media_nni)
                      st.markdown(resumo_html, unsafe_allow_html=True)
                 
-                st.subheader(f"Mapa de Clusters: {n_clusters_total} hotspots encontrados")
+                st.subheader(f"Mapa Interativo de Hotspots")
+                st.write("Dê zoom no mapa para expandir os agrupamentos e ver os pontos individuais.")
                 
                 if not gdf_com_clusters.empty:
                     map_center = [gdf_com_clusters.latitude.mean(), gdf_com_clusters.longitude.mean()]
                     m = folium.Map(location=map_center, zoom_start=11)
-                    unique_clusters = sorted(gdf_com_clusters['cluster'].unique()); colors = ['#%06X' % np.random.randint(0, 0xFFFFFF) for i in range(len(unique_clusters))]
-                    cluster_colors = {cluster_id: color for cluster_id, color in zip(unique_clusters, colors)}
                     
+                    # ===============================================================
+                    # LÓGICA ATUALIZADA PARA USAR MARKER CLUSTER
+                    # ===============================================================
+                    # Cria um objeto MarkerCluster e o adiciona ao mapa.
+                    marker_cluster = MarkerCluster().add_to(m)
+
+                    # Adiciona cada ponto ao OBJETO a MarkerCluster, não ao mapa diretamente.
                     for idx, row in gdf_com_clusters.iterrows():
-                        cluster_id = row['cluster']; color = cluster_colors.get(cluster_id, '#000000') if cluster_id != -1 else '#000000'
                         popup_text = ""
                         for col in ['prioridade', 'centro_operativo', 'corte_recorte']:
                             if col in row: popup_text += f"{col.replace('_', ' ').title()}: {str(row[col])}<br>"
-                        folium.CircleMarker(location=[row['latitude'], row['longitude']], radius=5, color=color, fill=True, fill_color=color, fill_opacity=0.7, popup=popup_text).add_to(m)
+                        
+                        folium.Marker(
+                            location=[row['latitude'], row['longitude']],
+                            popup=popup_text
+                        ).add_to(marker_cluster) # Adiciona ao cluster
+                    
                     st_folium(m, width=725, height=500, returned_objects=[])
 
             with tab2:
                 st.subheader("Análise de Cluster por Centro Operativo")
                 
-                # ===============================================================
-                # LÓGICA ATUALIZADA PARA INCLUIR CONTAGEM DE CLUSTERS POR CO
-                # ===============================================================
                 resumo_co = gdf_com_clusters.groupby('centro_operativo').apply(lambda x: pd.Series({
                     'Total de Serviços': len(x),
                     'Nº de Clusters': x[x['cluster'] != -1]['cluster'].nunique(),
