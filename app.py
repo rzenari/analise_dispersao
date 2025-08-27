@@ -138,13 +138,37 @@ if uploaded_file is not None:
         for coluna in filtros:
             if coluna in df_completo.columns:
                 lista_unica = df_completo[coluna].dropna().unique().tolist()
-                opcoes = ["Todos"] + sorted([str(item) for item in lista_unica])
-                valores_selecionados[coluna] = st.sidebar.selectbox(f"{coluna.replace('_', ' ').title()}", opcoes)
+                opcoes = sorted([str(item) for item in lista_unica])
+                
+                # ===============================================================
+                # AQUI ESTÁ A MUDANÇA PARA SELEÇÃO MÚLTIPLA
+                # ===============================================================
+                if coluna == 'prioridade':
+                    valores_selecionados[coluna] = st.sidebar.multiselect(
+                        f"{coluna.replace('_', ' ').title()}", 
+                        opcoes
+                    )
+                else:
+                    # Mantém o selectbox para os outros filtros
+                    valores_selecionados[coluna] = st.sidebar.selectbox(
+                        f"{coluna.replace('_', ' ').title()}", 
+                        ["Todos"] + opcoes
+                    )
 
         df_filtrado = df_completo.copy()
         for coluna, valor in valores_selecionados.items():
-            if coluna in df_filtrado.columns and valor != "Todos":
-                df_filtrado = df_filtrado[df_filtrado[coluna].astype(str) == valor]
+            if coluna in df_filtrado.columns:
+                # ===============================================================
+                # LÓGICA DE FILTRAGEM ATUALIZADA
+                # ===============================================================
+                if coluna == 'prioridade':
+                    # Se uma ou mais prioridades foram selecionadas, filtra por elas
+                    if valor: # 'valor' agora é uma lista
+                        df_filtrado = df_filtrado[df_filtrado[coluna].astype(str).isin(valor)]
+                else:
+                    # Lógica antiga para os outros filtros
+                    if valor != "Todos":
+                        df_filtrado = df_filtrado[df_filtrado[coluna].astype(str) == valor]
 
         st.header("Resultados da Análise")
         col1, col2, col3 = st.columns(3)
@@ -154,15 +178,13 @@ if uploaded_file is not None:
         if not df_filtrado.empty:
             gdf_filtrado = gpd.GeoDataFrame(df_filtrado, geometry=gpd.points_from_xy(df_filtrado.longitude, df_filtrado.latitude), crs="EPSG:4326")
             
-            nni_valor_final = None
-            is_media_nni = False
+            nni_valor_final = None; is_media_nni = False
             
             centros_operativos_selecionados = gdf_filtrado['centro_operativo'].unique()
             if len(centros_operativos_selecionados) == 1 or len(gdf_filtrado) < 5000:
                 nni_valor_final, nni_texto = calcular_nni_otimizado(gdf_filtrado)
             else:
-                is_media_nni = True
-                resultados_nni = []; pesos = []
+                is_media_nni = True; resultados_nni = []; pesos = []
                 for co in centros_operativos_selecionados:
                     gdf_co = gdf_filtrado[gdf_filtrado['centro_operativo'] == co]
                     if len(gdf_co) > 10:
@@ -185,7 +207,6 @@ if uploaded_file is not None:
             n_clusters = len(set(gdf_com_clusters['cluster'])) - (1 if -1 in gdf_com_clusters['cluster'] else 0)
             n_ruido = list(gdf_com_clusters['cluster']).count(-1)
 
-            # Exibindo o resumo didático
             with st.expander("🔍 O que estes números significam? Clique para ver a análise", expanded=True):
                  resumo_html = gerar_resumo_didatico(nni_valor_final, n_clusters, is_media=is_media_nni)
                  st.markdown(resumo_html, unsafe_allow_html=True)
