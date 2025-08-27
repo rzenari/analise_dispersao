@@ -171,7 +171,10 @@ if uploaded_file is not None:
                 min_samples=min_samples_cluster
             )
 
-            tab1, tab2 = st.tabs(["🗺️ Análise Geográfica e Mapa", "📊 Resumo por Centro Operativo"])
+            # ===============================================================
+            # CRIAÇÃO DAS ABAS, AGORA INCLUINDO "METODOLOGIA"
+            # ===============================================================
+            tab1, tab2, tab3 = st.tabs(["🗺️ Análise Geográfica e Mapa", "📊 Resumo por Centro Operativo", "💡 Metodologia"])
 
             with tab1:
                 col1, col2, col3 = st.columns(3)
@@ -196,9 +199,6 @@ if uploaded_file is not None:
                         else: nni_texto = f"Aleatório (Média: {nni_valor_final:.2f})"
                     else: nni_texto = "Insuficiente para cálculo"
                 
-                # ===============================================================
-                # AQUI ESTÁ A MUDANÇA: Adicionando a legenda (help)
-                # ===============================================================
                 help_nni = "O Índice do Vizinho Mais Próximo (NNI) mede se o padrão dos pontos é agrupado, disperso ou aleatório. NNI < 1: Agrupado (pontos mais próximos que o esperado). NNI ≈ 1: Aleatório (sem padrão). NNI > 1: Disperso (pontos mais espalhados que o esperado)."
                 col3.metric("Padrão de Dispersão (NNI)", nni_texto, help=help_nni)
                 
@@ -253,6 +253,30 @@ if uploaded_file is not None:
                 resumo_co = resumo_co[['centro_operativo', 'Total de Serviços', 'Nº de Clusters', 'Nº Agrupados', '% Agrupados', 'Nº Dispersos', '% Dispersos']]
                 
                 st.dataframe(resumo_co, use_container_width=True)
+                
+            # ===============================================================
+            # CONTEÚDO DA NOVA ABA "METODOLOGIA"
+            # ===============================================================
+            with tab3:
+                st.subheader("As Metodologias por Trás da Análise")
+                st.markdown("""
+                Para garantir uma análise precisa e confiável, utilizamos duas técnicas complementares da estatística espacial:
+                
+                #### 1. Clustering Baseado em Densidade (DBSCAN)
+                **O que é?** DBSCAN (Density-Based Spatial Clustering of Applications with Noise) é um algoritmo de machine learning que identifica agrupamentos de pontos em um espaço. Ele é a base da nossa contagem de "hotspots".
+                
+                **Como funciona?** O algoritmo define um "cluster" (ou hotspot) como uma área onde existem muitos pontos próximos uns dos outros. Ele agrupa esses pontos e, crucialmente, identifica os pontos que estão isolados em áreas de baixa densidade, classificando-os como "dispersos" (ou "ruído"). É a partir desta análise que calculamos o Nº de Hotspots, o % de Serviços Agrupados e o % de Serviços Dispersos.
+                
+                #### 2. Análise do Vizinho Mais Próximo (NNI)
+                **O que é?** O NNI (Nearest Neighbor Index) é um índice estatístico que responde a uma pergunta fundamental: "A distribuição dos meus pontos é agrupada, aleatória ou dispersa?" Ele é a base da nossa métrica Padrão de Dispersão.
+                
+                **Como funciona?** A análise mede a distância média entre cada serviço e seu vizinho mais próximo. Em seguida, compara essa média com a distância que seria esperada se os mesmos serviços estivessem distribuídos de forma perfeitamente aleatória na mesma área geográfica. O resultado é um índice único:
+                - **NNI < 1 (Agrupado):** Os serviços estão, em média, mais próximos uns dos outros do que o esperado pelo acaso.
+                - **NNI ≈ 1 (Aleatório):** Não há um padrão de distribuição estatisticamente relevante.
+                - **NNI > 1 (Disperso):** Os serviços estão, em média, mais espalhados uns dos outros do que o esperado pelo acaso.
+                
+                Juntas, essas duas técnicas fornecem uma visão completa: o DBSCAN **encontra e conta** os agrupamentos, enquanto o NNI nos dá uma **medida geral** do grau de concentração de toda a sua operação.
+                """)
         else:
             st.warning("Nenhum dado para exibir com os filtros atuais.")
 else:
