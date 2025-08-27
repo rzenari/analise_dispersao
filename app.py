@@ -18,10 +18,10 @@ from folium.plugins import MarkerCluster
 st.set_page_config(layout="wide", page_title="Análise de Dispersão Geográfica")
 
 st.title("🗺️ Ferramenta de Análise de Dispersão Geográfica")
-st.write("""
-    Faça o upload da sua planilha de cortes para analisar a distribuição geográfica,
-    identificar clusters e obter insights para sua operação logística.
-""")
+# ===============================================================
+# TEXTO ATUALIZADO AQUI
+# ===============================================================
+st.write("Faça o upload da sua planilha de cortes para analisar a distribuição geográfica e identificar clusters")
 
 # ==============================================================================
 # 3. FUNÇÕES DE ANÁLISE (COM CACHE PARA PERFORMANCE)
@@ -233,9 +233,6 @@ if uploaded_file is not None:
                             if col in row: popup_text += f"{col.replace('_', ' ').title()}: {str(row[col])}<br>"
                         folium.Marker(location=[row['latitude'], row['longitude']], popup=popup_text).add_to(marker_cluster)
                     
-                    # ===============================================================
-                    # AQUI ESTÁ A MUDANÇA: Mapa ocupando toda a largura e mais alto
-                    # ===============================================================
                     st_folium(m, use_container_width=True, height=700, returned_objects=[])
 
             with tab2:
