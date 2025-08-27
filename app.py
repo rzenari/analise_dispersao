@@ -1,5 +1,5 @@
 # ==============================================================================
-# 1. IMPORTAÇÃO DAS BIBLIOTECAS (ESSENCIAL ESTAR NO TOPO)
+# 1. IMPORTAÇÃO DAS BIBLIOTECAS
 # ==============================================================================
 import streamlit as st
 import pandas as pd
@@ -28,24 +28,18 @@ st.write("""
 
 @st.cache_data
 def carregar_dados(arquivo_enviado):
-    """Lê o arquivo de forma otimizada, carregando apenas as colunas necessárias."""
-    
-    # Lista de colunas que realmente vamos usar. Isso economiza MUITA memória.
+    """Lê o arquivo de forma otimizada, com depuração de erros aprimorada."""
     colunas_necessarias = [
         'latitude', 'longitude', 'sucursal', 
         'centro_operativo', 'corte_recorte', 'prioridade'
     ]
     
-    df = None
-    encodings_to_try = ['utf-16', 'utf-8-sig', 'latin-1', 'utf-8']
-    
     def processar_dataframe(df):
         """Função auxiliar para limpar e processar o dataframe."""
         df.columns = df.columns.str.lower().str.strip()
         
-        # Verifica se todas as colunas necessárias foram carregadas
         if not all(col in df.columns for col in colunas_necessarias):
-            st.error("ERRO: Uma ou mais colunas essenciais (latitude, longitude, sucursal, etc.) não foram encontradas no arquivo.")
+            st.error("ERRO: Colunas essenciais não foram encontradas após o carregamento.")
             st.write("Colunas necessárias:", colunas_necessarias)
             st.write("Colunas encontradas:", df.columns.tolist())
             return None
@@ -55,37 +49,57 @@ def carregar_dados(arquivo_enviado):
         df = df.dropna(subset=['latitude', 'longitude'])
         return df
 
-    # Tenta ler como CSV de forma otimizada
-    for encoding in encodings_to_try:
-        try:
-            arquivo_enviado.seek(0)
-            df = pd.read_csv(
-                arquivo_enviado, 
-                encoding=encoding, 
-                sep=None, 
-                engine='python',
-                # A otimização acontece aqui:
-                usecols=lambda column: column.strip().lower() in colunas_necessarias
-            )
-            st.success(f"Arquivo CSV lido com sucesso (codificação: {encoding}).")
-            return processar_dataframe(df)
-        except Exception:
-            continue
-    
-    # Se CSV falhou, tenta ler como Excel
+    # Tenta ler como CSV
     try:
         arquivo_enviado.seek(0)
-        df_excel = pd.read_excel(arquivo_enviado, engine='openpyxl')
-        st.success("Arquivo lido com sucesso como Excel (.xlsx).")
+        df_csv = pd.read_csv(
+            arquivo_enviado, 
+            encoding='utf-16', # Priorizando utf-16 que diagnosticamos antes
+            sep='\t', # Arquivos utf-16 geralmente usam TAB como separador
+            usecols=lambda column: column.strip().lower() in colunas_necessarias
+        )
+        st.success("Arquivo CSV lido com sucesso (codificação: utf-16, separador: TAB).")
+        return processar_dataframe(df_csv)
+    except Exception as e_utf16:
+        # Se falhar, agora vamos mostrar o erro para depuração
+        st.warning(f"Falha ao ler como CSV (UTF-16/TAB). Tentando outros formatos... (Erro: {e_utf16})")
+
+        # Tenta outros formatos de CSV
+        try:
+            arquivo_enviado.seek(0)
+            df_csv_latin = pd.read_csv(
+                arquivo_enviado, 
+                encoding='latin-1',
+                sep=None,
+                engine='python',
+                usecols=lambda column: column.strip().lower() in colunas_necessarias
+            )
+            st.success("Arquivo CSV lido com sucesso (codificação: latin-1).")
+            return processar_dataframe(df_csv_latin)
+        except Exception as e_latin:
+            st.warning(f"Falha ao ler como CSV (Latin-1). Tentando Excel... (Erro: {e_latin})")
+
+    # Tenta ler como Excel (agora também otimizado)
+    try:
+        arquivo_enviado.seek(0)
+        # Otimização: primeiro lemos o cabeçalho para saber quais colunas carregar
+        df_header = pd.read_excel(arquivo_enviado, engine='openpyxl', nrows=0)
+        df_header.columns = df_header.columns.str.lower().str.strip()
         
-        df_excel.columns = df_excel.columns.str.lower().str.strip()
-        colunas_encontradas = [col for col in colunas_necessarias if col in df_excel.columns]
-        df = df_excel[colunas_encontradas]
+        colunas_para_carregar = [col for col in df_header.columns if col in colunas_necessarias]
         
-        return processar_dataframe(df)
-    except Exception as e:
-        st.error(f"Não foi possível ler o arquivo. Último erro: {e}")
+        df_excel = pd.read_excel(
+            arquivo_enviado, 
+            engine='openpyxl',
+            usecols=colunas_para_carregar # Carrega apenas as colunas necessárias
+        )
+        st.success("Arquivo lido com sucesso como Excel (.xlsx) de forma otimizada.")
+        return processar_dataframe(df_excel)
+    except Exception as e_excel:
+        st.error(f"Não foi possível ler o arquivo. O último erro foi na tentativa de ler como Excel: {e_excel}")
         return None
+
+# ... (o resto do código permanece exatamente o mesmo) ...
 
 def calcular_nni(gdf):
     """Calcula o Índice do Vizinho Mais Próximo (NNI)."""
@@ -136,9 +150,6 @@ def executar_dbscan(gdf, eps_km=0.5, min_samples=3):
     gdf['cluster'] = db.labels_
     return gdf
 
-# ==============================================================================
-# 4. BARRA LATERAL (SIDEBAR) COM UPLOAD E FILTROS
-# ==============================================================================
 st.sidebar.header("Controles")
 uploaded_file = st.sidebar.file_uploader(
     "Escolha a planilha de cortes",
@@ -153,7 +164,6 @@ if uploaded_file is not None:
         
         st.sidebar.markdown("### Filtros da Análise")
         
-        # Como carregamos apenas colunas específicas, iteramos sobre elas
         filtros = ['sucursal', 'centro_operativo', 'corte_recorte', 'prioridade']
         valores_selecionados = {}
 
@@ -167,10 +177,6 @@ if uploaded_file is not None:
             if coluna in df_filtrado.columns and valor != "Todos":
                 df_filtrado = df_filtrado[df_filtrado[coluna] == valor]
 
-        # ==============================================================================
-        # 5. ÁREA PRINCIPAL COM RESULTADOS E MAPA
-        # ==============================================================================
-        
         st.header("Resultados da Análise")
         
         col1, col2, col3 = st.columns(3)
