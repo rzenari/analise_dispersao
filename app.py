@@ -115,15 +115,17 @@ def executar_dbscan(gdf, eps_km=0.5, min_samples=3):
     return gdf
 
 # ==============================================================================
-# 4. BARRA LATERAL (SIDEBAR) COM UPLOAD E FILTROS
+# 4. BARRA LATERAL (SIDEBAR) E LÓGICA PRINCIPAL COM CHECKPOINTS
 # ==============================================================================
 st.sidebar.header("Controles")
 uploaded_file = st.sidebar.file_uploader("Escolha a planilha de cortes", type=["csv", "xlsx", "xls"])
 
 if uploaded_file is not None:
+    st.info("CHECKPOINT 1: Arquivo enviado. Inciando o carregamento dos dados...")
     df_completo = carregar_dados(uploaded_file)
 
     if df_completo is not None:
+        st.info("CHECKPOINT 2: Dados carregados com sucesso. Criando os filtros na barra lateral...")
         st.sidebar.success(f"{len(df_completo)} registros carregados!")
         st.sidebar.markdown("### Filtros da Análise")
         
@@ -133,22 +135,16 @@ if uploaded_file is not None:
         for coluna in filtros:
             if coluna in df_completo.columns:
                 lista_unica = df_completo[coluna].dropna().unique().tolist()
-                # ===============================================================
-                # AQUI ESTÁ A CORREÇÃO FINAL E IMPORTANTE
-                # Convertemos tudo para string ANTES de ordenar para evitar erros com tipos mistos
                 opcoes = ["Todos"] + sorted([str(item) for item in lista_unica])
-                # ===============================================================
                 valores_selecionados[coluna] = st.sidebar.selectbox(f"{coluna.replace('_', ' ').title()}", opcoes)
-
+        
+        st.info("CHECKPOINT 3: Filtros criados. Aplicando seleção atual...")
         df_filtrado = df_completo.copy()
         for coluna, valor in valores_selecionados.items():
             if coluna in df_filtrado.columns and valor != "Todos":
-                # Convertemos a coluna para string também na hora de filtrar, para garantir a comparação
                 df_filtrado = df_filtrado[df_filtrado[coluna].astype(str) == valor]
 
-        # ==============================================================================
-        # 5. ÁREA PRINCIPAL COM RESULTADOS E MAPA
-        # ==============================================================================
+        st.info("CHECKPOINT 4: Filtros aplicados. Exibindo métricas...")
         st.header("Resultados da Análise")
         
         col1, col2, col3 = st.columns(3)
@@ -156,15 +152,18 @@ if uploaded_file is not None:
         col2.metric("Cortes na Seleção Atual", len(df_filtrado))
         
         if not df_filtrado.empty:
+            st.info("CHECKPOINT 5: Convertendo dados para formato geográfico (GeoDataFrame)...")
             gdf_filtrado = gpd.GeoDataFrame(
                 df_filtrado,
                 geometry=gpd.points_from_xy(df_filtrado.longitude, df_filtrado.latitude),
                 crs="EPSG:4326"
             )
+            st.info("CHECKPOINT 6: GeoDataFrame criado com sucesso. Calculando NNI...")
             
             nni_valor, nni_texto = calcular_nni(gdf_filtrado)
             col3.metric("Padrão de Dispersão", nni_texto)
             
+            st.info("CHECKPOINT 7: NNI calculado. Executando análise de cluster (DBSCAN)...")
             st.sidebar.markdown("### Parâmetros de Cluster")
             eps_cluster_km = st.sidebar.slider("Raio do Cluster (km)", 0.1, 5.0, 1.0, 0.1)
             min_samples_cluster = st.sidebar.slider("Mínimo de Pontos por Cluster", 2, 20, 5, 1)
@@ -176,6 +175,7 @@ if uploaded_file is not None:
             st.subheader(f"Análise de Clusters: {n_clusters} hotspots encontrados")
             st.write(f"Foram encontrados **{n_clusters} clusters** e **{n_ruido} pontos isolados**.")
             
+            st.info("CHECKPOINT 8: Análise de cluster finalizada. Criando o mapa...")
             if not gdf_com_clusters.empty:
                 map_center = [gdf_com_clusters.latitude.mean(), gdf_com_clusters.longitude.mean()]
                 m = folium.Map(location=map_center, zoom_start=11)
@@ -194,9 +194,12 @@ if uploaded_file is not None:
                         location=[row['latitude'], row['longitude']],
                         radius=5, color=color, fill=True, fill_color=color, fill_opacity=0.7, popup=popup_text
                     ).add_to(m)
+                
+                st.info("CHECKPOINT 9: Mapa criado. Exibindo na tela...")
                 st_folium(m, width=725, height=500, returned_objects=[])
+                st.balloons()
+                st.success("Análise concluída com sucesso!")
         else:
             st.warning("Nenhum dado para exibir com os filtros atuais.")
-
 else:
     st.info("Aguardando o upload de um arquivo para iniciar a análise.")
