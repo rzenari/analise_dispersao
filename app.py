@@ -30,12 +30,14 @@ st.write("""
 def carregar_dados(arquivo_enviado):
     """Lê o arquivo CSV ou Excel, tentando diferentes codificações e padronizando os cabeçalhos."""
     df = None
-    encodings_to_try = ['utf-8-sig', 'latin-1', 'utf-8', 'iso-8859-1']
+    # Adicionamos 'utf-16' como uma das primeiras tentativas por causa do BOM "ÿþ"
+    encodings_to_try = ['utf-16', 'utf-8-sig', 'latin-1', 'utf-8', 'iso-8859-1']
     
     # Tenta ler como CSV
     for encoding in encodings_to_try:
         try:
             arquivo_enviado.seek(0)
+            # Para utf-16, o separador geralmente é tabulação (\t), mas vamos deixar o pandas detectar
             df = pd.read_csv(arquivo_enviado, encoding=encoding, sep=None, engine='python')
             st.success(f"Arquivo CSV lido com sucesso usando a codificação: {encoding}")
             break 
