@@ -169,9 +169,6 @@ if uploaded_file is not None:
                 min_samples=min_samples_cluster
             )
             
-            # ===============================================================
-            # REORDENAÇÃO DAS ABAS
-            # ===============================================================
             tab1, tab2, tab3, tab4 = st.tabs(["🗺️ Análise Geográfica e Mapa", "📊 Resumo por Centro Operativo", "🔥 Mapa de Calor", "💡 Metodologia"])
 
             with tab1:
@@ -254,9 +251,6 @@ if uploaded_file is not None:
                 if not df_filtrado.empty:
                     map_center_heatmap = [df_filtrado.latitude.mean(), df_filtrado.longitude.mean()]
                     m_heatmap = folium.Map(location=map_center_heatmap, zoom_start=11)
-                    # ===============================================================
-                    # CORREÇÃO PARA O MAPA DE CALOR
-                    # ===============================================================
                     heat_data = df_filtrado[['latitude', 'longitude']].values.tolist()
                     HeatMap(heat_data, radius=radius_heatmap).add_to(m_heatmap)
                     st_folium(m_heatmap, use_container_width=True, height=700, returned_objects=[])
@@ -269,12 +263,46 @@ if uploaded_file is not None:
                 Para garantir uma análise precisa e confiável, utilizamos duas técnicas complementares da estatística espacial:
                 
                 #### 1. Clustering Baseado em Densidade (DBSCAN)
-                ... [texto da metodologia] ...
+                **O que é?** DBSCAN (Density-Based Spatial Clustering of Applications with Noise) é um algoritmo de machine learning que identifica agrupamentos de pontos em um espaço. Ele é a base da nossa contagem de "hotspots".
+                
+                **Como funciona?** O algoritmo define um "cluster" (ou hotspot) como uma área onde existem muitos pontos próximos uns dos outros. Ele agrupa esses pontos e, crucialmente, identifica os pontos que estão isolados em áreas de baixa densidade, classificando-os como "dispersos" (ou "ruído"). É a partir desta análise que calculamos o Nº de Hotspots, o % de Serviços Agrupados e o % de Serviços Dispersos.
+                
+                #### 2. Análise do Vizinho Mais Próximo (NNI)
+                **O que é?** O NNI (Nearest Neighbor Index) é um índice estatístico que responde a uma pergunta fundamental: "A distribuição dos meus pontos é agrupada, aleatória ou dispersa?" Ele é a base da nossa métrica Padrão de Dispersão.
+                
+                **Como funciona?** A análise mede a distância média entre cada serviço e seu vizinho mais próximo. Em seguida, compara essa média com a distância que seria esperada se os mesmos serviços estivessem distribuídos de forma perfeitamente aleatória na mesma área geográfica. O resultado é um índice único:
+                - **NNI < 1 (Agrupado):** Os serviços estão, em média, mais próximos uns dos outros do que o esperado pelo acaso.
+                - **NNI ≈ 1 (Aleatório):** Não há um padrão de distribuição estatisticamente relevante.
+                - **NNI > 1 (Disperso):** Os serviços estão, em média, mais espalhados uns dos outros do que o esperado pelo acaso.
+                
+                Juntas, essas duas técnicas fornecem uma visão completa: o DBSCAN **encontra e conta** os agrupamentos, enquanto o NNI nos dá uma **medida geral** do grau de concentração de toda a sua operação.
                 """)
+                
                 st.subheader("Perguntas Frequentes (FAQ)")
                 st.markdown("""
-                #### O agrupamento dos serviços é definido por "círculos"? ...
-                ... [texto do FAQ] ...
+                #### O agrupamento dos serviços é definido por "círculos"? Os pontos de um "círculo" invadem o outro? Como fica a região aglomerada por 4 "círculos"? Não fica um espaço não mapeado no meio?
+                
+                Essa é uma ótima pergunta! Ao contrário do que se pode imaginar, o algoritmo DBSCAN não desenha círculos fixos e independentes no mapa. Ele funciona mais como uma "mancha de tinta que se espalha" para identificar as áreas densas.
+                
+                Pense assim:
+                1.  O DBSCAN começa em um ponto.
+                2.  Ele verifica se há vizinhos suficientes dentro de um **raio** específico (o "Raio do Cluster (km)" que você ajusta).
+                3.  Se houver, ele considera esse ponto parte de um cluster e **se expande** para incluir todos os vizinhos densos, e os vizinhos desses vizinhos, e assim por diante.
+                
+                Isso significa que:
+                - **Não são círculos rígidos:** Os clusters resultantes têm **formas irregulares e orgânicas**, adaptando-se à distribuição real dos seus dados (por exemplo, seguindo o traçado de uma rua ou o contorno de um bairro).
+                - **Os agrupamentos se fundem:** Se as "áreas de influência" de pontos próximos se sobrepõem e ambos são densos, eles se tornam parte do **mesmo cluster grande**. Não há "invasão" de círculos, mas sim uma fusão natural.
+                - **Não ficam espaços não mapeados no meio:** Em uma região aglomerada por vários pontos densos, o DBSCAN não deixa buracos. Ele forma um único cluster contínuo que cobre toda a área densamente populada por serviços. O resultado é uma representação muito mais fiel das suas "zonas de trabalho" do que simples círculos.
+                
+                #### Por que o DBSCAN é mais adequado para esta ferramenta do que "mapear por km²" ou "mapas de calor"?
+                
+                Sua sugestão de "mapear por km²" é excelente e se aproxima muito de uma técnica conhecida como **Análise de Grade** ou **Mapa de Calor** (que adicionamos em uma nova aba!).
+                
+                Ambas as abordagens são valiosas, mas com focos diferentes:
+                - **DBSCAN (Clusters Irregulares):** Ideal para **otimização logística**. Os clusters que ele identifica representam as **"zonas de trabalho naturais"** da sua operação, onde uma equipe pode atender múltiplos serviços com mínimo deslocamento. Ele é focado em *agrupamentos reais de serviços*.
+                - **Mapa de Calor (Visualização de Densidade):** Perfeito para **percepção rápida de densidade** e relatórios gerenciais. Ele mostra visualmente onde há maior concentração de pontos em qualquer lugar do mapa, independentemente de formarem clusters estatisticamente significativos. É mais focado em *onde está mais "quente" de serviços*.
+                
+                Para a otimização de rotas e alocação de equipes, os clusters orgânicos do DBSCAN são geralmente mais úteis porque eles delimitam áreas de forma mais inteligente para o campo. O mapa de calor, por sua vez, complementa essa visão, mostrando as "manchas" gerais de atividade. Juntos, eles oferecem uma análise completa!
                 """)
         else:
             st.warning("Nenhum dado para exibir com os filtros atuais.")
