@@ -11,7 +11,6 @@ from math import sqrt
 import folium
 from streamlit_folium import st_folium
 from folium.plugins import MarkerCluster, HeatMap
-# Novas importações para o mapa hexagonal
 import h3
 from shapely.geometry import Polygon
 
@@ -258,8 +257,13 @@ if uploaded_file is not None:
                     
                     df_hex = df_filtrado.groupby('hex_id').size().reset_index(name='contagem')
 
+                    # ===============================================================
+                    # FUNÇÃO INTERNA CORRIGIDA PARA O MAPA HEXAGONAL
+                    # ===============================================================
                     def hex_to_polygon(hex_id):
-                        points = h3.cell_to_boundary(hex_id, geo_json=True)
+                        # 1. Remove o argumento geo_json=True
+                        # 2. Inverte a ordem de (lat, lon) para (lon, lat) para a biblioteca de desenho
+                        points = [(lon, lat) for lat, lon in h3.cell_to_boundary(hex_id)]
                         return Polygon(points)
 
                     df_hex['geometry'] = df_hex['hex_id'].apply(hex_to_polygon)
