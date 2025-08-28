@@ -11,6 +11,9 @@ from math import sqrt
 import folium
 from streamlit_folium import st_folium
 from folium.plugins import MarkerCluster, HeatMap
+# Novas importações para o mapa hexagonal
+import h3
+from shapely.geometry import Polygon
 
 # ==============================================================================
 # 2. CONFIGURAÇÃO DA PÁGINA E TÍTULOS
@@ -161,7 +164,7 @@ if uploaded_file is not None:
             st.sidebar.markdown("### Parâmetros de Análise")
             eps_cluster_km = st.sidebar.slider("Raio do Cluster (km)", 0.1, 5.0, 1.0, 0.1, help="Define o raio de busca para agrupar pontos no DBSCAN.")
             min_samples_cluster = st.sidebar.slider("Mínimo de Pontos por Cluster", 2, 20, 5, 1, help="Número mínimo de pontos para formar um hotspot.")
-            radius_heatmap = st.sidebar.slider("Raio do Mapa de Calor (pixels)", 1, 30, 15, 1, help="Define o raio de influência de cada ponto no mapa de calor.")
+            hex_resolution = st.sidebar.slider("Resolução do Mapa Hexagonal", 5, 10, 8, 1, help="Define o tamanho dos hexágonos. Números maiores = hexágonos menores e mais detalhados.")
 
             gdf_com_clusters = executar_dbscan(
                 gpd.GeoDataFrame(df_filtrado, geometry=gpd.points_from_xy(df_filtrado.longitude, df_filtrado.latitude), crs="EPSG:4326"),
@@ -169,7 +172,7 @@ if uploaded_file is not None:
                 min_samples=min_samples_cluster
             )
             
-            tab1, tab2, tab3, tab4 = st.tabs(["🗺️ Análise Geográfica e Mapa", "📊 Resumo por Centro Operativo", "🔥 Mapa de Calor", "💡 Metodologia"])
+            tab1, tab2, tab3, tab4 = st.tabs(["🗺️ Análise Geográfica e Mapa", "📊 Resumo por Centro Operativo", "🔥 Mapa Hexagonal de Densidade", "💡 Metodologia"])
 
             with tab1:
                 col1, col2, col3 = st.columns(3)
@@ -230,8 +233,7 @@ if uploaded_file is not None:
                         for col in ['prioridade', 'centro_operativo', 'corte_recorte']:
                             if col in row: popup_text += f"{col.replace('_', ' ').title()}: {str(row[col])}<br>"
                         folium.Marker(location=[row['latitude'], row['longitude']], popup=popup_text).add_to(marker_cluster)
-                    
-                    st_folium(m, width='stretch', height=700, returned_objects=[])
+                    st_folium(m, use_container_width=True, height=700, returned_objects=[])
 
             with tab2:
                 st.subheader("Análise de Cluster por Centro Operativo")
@@ -247,18 +249,39 @@ if uploaded_file is not None:
                 st.dataframe(resumo_co, use_container_width=True)
             
             with tab3:
-                st.subheader("Mapa de Calor dos Serviços")
-                st.write("Visualize as áreas de maior concentração de serviços através de um mapa de calor. Áreas mais vermelhas indicam maior densidade de chamados.")
+                st.subheader("Mapa Hexagonal de Densidade")
+                st.write("Visualize a densidade de serviços em áreas geográficas fixas. A cor de cada hexágono representa o número de cortes em seu interior. Esta visão é estável e não muda com o zoom.")
                 
-                limite_heatmap = 15000
-                if len(df_filtrado) <= limite_heatmap:
-                    map_center_heatmap = [df_filtrado.latitude.mean(), df_filtrado.longitude.mean()]
-                    m_heatmap = folium.Map(location=map_center_heatmap, zoom_start=11)
-                    heat_data = df_filtrado[['latitude', 'longitude']].values.tolist()
-                    HeatMap(heat_data, radius=radius_heatmap).add_to(m_heatmap)
-                    st_folium(m_heatmap, width='stretch', height=700, returned_objects=[])
+                limite_hexbin = 25000
+                if len(df_filtrado) <= limite_hexbin:
+                    df_filtrado['hex_id'] = df_filtrado.apply(lambda row: h3.latlng_to_cell(row['latitude'], row['longitude'], hex_resolution), axis=1)
+                    
+                    df_hex = df_filtrado.groupby('hex_id').size().reset_index(name='contagem')
+
+                    def hex_to_polygon(hex_id):
+                        points = h3.cell_to_boundary(hex_id, geo_json=True)
+                        return Polygon(points)
+
+                    df_hex['geometry'] = df_hex['hex_id'].apply(hex_to_polygon)
+                    gdf_hex = gpd.GeoDataFrame(df_hex, crs="EPSG:4326")
+
+                    map_center_hex = [df_filtrado.latitude.mean(), df_filtrado.longitude.mean()]
+                    m_hex = folium.Map(location=map_center_hex, zoom_start=11)
+
+                    folium.Choropleth(
+                        geo_data=gdf_hex,
+                        data=df_hex,
+                        columns=['hex_id', 'contagem'],
+                        key_on='feature.id',
+                        fill_color='YlOrRd',
+                        fill_opacity=0.7,
+                        line_opacity=0.2,
+                        legend_name='Contagem de Serviços por Hexágono'
+                    ).add_to(m_hex)
+                    
+                    st_folium(m_hex, use_container_width=True, height=700, returned_objects=[])
                 else:
-                    st.info(f"O mapa de calor está desabilitado para seleções com mais de {limite_heatmap:,.0f} pontos para garantir a performance. Por favor, aplique mais filtros para visualizar.".replace(",", "."))
+                    st.info(f"O mapa hexagonal está desabilitado para seleções com mais de {limite_hexbin:,.0f} pontos para garantir a performance. Por favor, aplique mais filtros para visualizar.".replace(",", "."))
 
             with tab4:
                 st.subheader("As Metodologias por Trás da Análise")
@@ -299,13 +322,13 @@ if uploaded_file is not None:
                 
                 #### Por que o DBSCAN é mais adequado para esta ferramenta do que "mapear por km²" ou "mapas de calor"?
                 
-                Sua sugestão de "mapear por km²" é excelente e se aproxima muito de uma técnica conhecida como **Análise de Grade** ou **Mapa de Calor** (que adicionamos em uma nova aba!).
+                Sua sugestão de "mapear por km²" é excelente e se aproxima muito de uma técnica conhecida como **Análise de Grade** ou **Mapa de Calor Hexagonal** (que adicionamos em uma nova aba!).
                 
                 Ambas as abordagens são valiosas, mas com focos diferentes:
                 - **DBSCAN (Clusters Irregulares):** Ideal para **otimização logística**. Os clusters que ele identifica representam as **"zonas de trabalho naturais"** da sua operação, onde uma equipe pode atender múltiplos serviços com mínimo deslocamento. Ele é focado em *agrupamentos reais de serviços*.
-                - **Mapa de Calor (Visualização de Densidade):** Perfeito para **percepção rápida de densidade** e relatórios gerenciais. Ele mostra visualmente onde há maior concentração de pontos em qualquer lugar do mapa, independentemente de formarem clusters estatisticamente significativos. É mais focado em *onde está mais "quente" de serviços*.
+                - **Mapa Hexagonal (Visualização de Densidade em Grade):** Perfeito para **percepção rápida de densidade** e relatórios gerenciais. Ele mostra visualmente onde há maior concentração de pontos em áreas geográficas fixas, independentemente de formarem clusters estatisticamente significativos. É mais focado em *onde está mais "quente" de serviços*.
                 
-                Para a otimização de rotas e alocação de equipes, os clusters orgânicos do DBSCAN são geralmente mais úteis porque eles delimitam áreas de forma mais inteligente para o campo. O mapa de calor, por sua vez, complementa essa visão, mostrando as "manchas" gerais de atividade. Juntos, eles oferecem uma análise completa!
+                Para a otimização de rotas e alocação de equipes, os clusters orgânicos do DBSCAN são geralmente mais úteis porque eles delimitam áreas de forma mais inteligente para o campo. O mapa hexagonal, por sua vez, complementa essa visão, mostrando as "manchas" gerais de atividade. Juntos, eles oferecem uma análise completa!
                 """)
         else:
             st.warning("Nenhum dado para exibir com os filtros atuais.")
