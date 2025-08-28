@@ -10,7 +10,7 @@ from scipy.spatial import distance
 from math import sqrt
 import folium
 from streamlit_folium import st_folium
-from folium.plugins import MarkerCluster
+from folium.plugins import MarkerCluster, HeatMap
 
 # ==============================================================================
 # 2. CONFIGURAÇÃO DA PÁGINA E TÍTULOS
@@ -18,9 +18,6 @@ from folium.plugins import MarkerCluster
 st.set_page_config(layout="wide", page_title="Análise de Dispersão Geográfica")
 
 st.title("🗺️ Ferramenta de Análise de Dispersão Geográfica")
-# ===============================================================
-# TEXTO ATUALIZADO AQUI
-# ===============================================================
 st.write("Faça o upload da sua planilha de cortes para analisar a distribuição geográfica e identificar clusters")
 
 # ==============================================================================
@@ -165,13 +162,20 @@ if uploaded_file is not None:
             eps_cluster_km = st.sidebar.slider("Raio do Cluster (km)", 0.1, 5.0, 1.0, 0.1)
             min_samples_cluster = st.sidebar.slider("Mínimo de Pontos por Cluster", 2, 20, 5, 1)
 
+            # Parâmetro para o Mapa de Calor
+            st.sidebar.markdown("### Parâmetros do Mapa de Calor")
+            radius_heatmap = st.sidebar.slider("Raio do Mapa de Calor (pixels)", 1, 30, 10, 1)
+
             gdf_com_clusters = executar_dbscan(
                 gpd.GeoDataFrame(df_filtrado, geometry=gpd.points_from_xy(df_filtrado.longitude, df_filtrado.latitude), crs="EPSG:4326"),
                 eps_km=eps_cluster_km, 
                 min_samples=min_samples_cluster
             )
 
-            tab1, tab2, tab3 = st.tabs(["🗺️ Análise Geográfica e Mapa", "📊 Resumo por Centro Operativo", "💡 Metodologia"])
+            # ===============================================================
+            # CRIAÇÃO DAS ABAS, AGORA INCLUINDO "MAPA DE CALOR"
+            # ===============================================================
+            tab1, tab2, tab3, tab4 = st.tabs(["🗺️ Análise Geográfica e Mapa", "📊 Resumo por Centro Operativo", "💡 Metodologia", "🔥 Mapa de Calor"])
 
             with tab1:
                 col1, col2, col3 = st.columns(3)
@@ -270,8 +274,55 @@ if uploaded_file is not None:
                 - **NNI ≈ 1 (Aleatório):** Não há um padrão de distribuição estatisticamente relevante.
                 - **NNI > 1 (Disperso):** Os serviços estão, em média, mais espalhados uns dos outros do que o esperado pelo acaso.
                 
-                Juntas, essas duas técnicas fornecem uma visão completa: o DBSCAN **encontra e conta** os agrupamentos, enquanto o NNI nos dá uma **medida geral** do grau de concentração de toda a sua operação.
+                Juntas, essas duas técnicas fornecem uma visão completa: o DBSCAN **encontra e conta** os agrupamentos, enquanto o NNI nos dá uma **medida geral** do grau de concentração de toda a sua sua operação.
                 """)
+                
+                st.subheader("Perguntas Frequentes (FAQ)")
+                st.markdown("""
+                #### O agrupamento dos serviços é definido por "círculos"? Os pontos de um "círculo" invadem o outro? Como fica a região aglomerada por 4 "círculos"? Não fica um espaço não mapeado no meio?
+                
+                Essa é uma ótima pergunta! Ao contrário do que se pode imaginar, o algoritmo DBSCAN não desenha círculos fixos e independentes no mapa. Ele funciona mais como uma "mancha de tinta que se espalha" para identificar as áreas densas.
+                
+                Pense assim:
+                1.  O DBSCAN começa em um ponto.
+                2.  Ele verifica se há vizinhos suficientes dentro de um **raio** específico (o "Raio do Cluster (km)" que você ajusta).
+                3.  Se houver, ele considera esse ponto parte de um cluster e **se expande** para incluir todos os vizinhos densos, e os vizinhos desses vizinhos, e assim por diante.
+                
+                Isso significa que:
+                * **Não são círculos rígidos:** Os clusters resultantes têm **formas irregulares e orgânicas**, adaptando-se à distribuição real dos seus dados (por exemplo, seguindo o traçado de uma rua ou o contorno de um bairro).
+                * **Os agrupamentos se fundem:** Se as "áreas de influência" de pontos próximos se sobrepõem e ambos são densos, eles se tornam parte do **mesmo cluster grande**. Não há "invasão" de círculos, mas sim uma fusão natural.
+                * **Não ficam espaços não mapeados no meio:** Em uma região aglomerada por vários pontos densos, o DBSCAN não deixa buracos. Ele forma um único cluster contínuo que cobre toda a área densamente populada por serviços. O resultado é uma representação muito mais fiel das suas "zonas de trabalho" do que simples círculos.
+                
+                #### Por que o DBSCAN é mais adequado para esta ferramenta do que "mapear por km²" ou "mapas de calor"?
+                
+                Sua sugestão de "mapear por km²" é excelente e se aproxima muito de uma técnica conhecida como **Análise de Grade** ou **Mapa de Calor** (que adicionamos em uma nova aba!).
+                
+                Ambas as abordagens são valiosas, mas com focos diferentes:
+                * **DBSCAN (Clusters Irregulares):** Ideal para **otimização logística**. Os clusters que ele identifica representam as **"zonas de trabalho naturais"** da sua operação, onde uma equipe pode atender múltiplos serviços com mínimo deslocamento. Ele é focado em *agrupamentos reais de serviços*.
+                * **Mapa de Calor (Visualização de Densidade):** Perfeito para **percepção rápida de densidade** e relatórios gerenciais. Ele mostra visualmente onde há maior concentração de pontos em qualquer lugar do mapa, independentemente de formarem clusters estatisticamente significativos. É mais focado em *onde está mais "quente" de serviços*.
+                
+                Para a otimização de rotas e alocação de equipes, os clusters orgânicos do DBSCAN são geralmente mais úteis porque eles delimitam áreas de forma mais inteligente para o campo. O mapa de calor, por sua vez, complementa essa visão, mostrando as "manchas" gerais de atividade. Juntos, eles oferecem uma análise completa!
+                """)
+            
+            # ===============================================================
+            # CONTEÚDO DA NOVA ABA "MAPA DE CALOR"
+            # ===============================================================
+            with tab4:
+                st.subheader("Mapa de Calor dos Serviços")
+                st.write("Visualize as áreas de maior concentração de serviços através de um mapa de calor. Áreas mais vermelhas indicam maior densidade de chamados.")
+
+                if not df_filtrado.empty:
+                    map_center_heatmap = [df_filtrado.latitude.mean(), df_filtrado.longitude.mean()]
+                    m_heatmap = folium.Map(location=map_center_heatmap, zoom_start=11)
+                    
+                    # Criar a lista de pontos para o HeatMap
+                    heat_data = [[row['latitude'], row['longitude']] for index, row in df_filtrado.iterrows()]
+                    
+                    HeatMap(heat_data, radius=radius_heatmap).add_to(m_heatmap)
+                    
+                    st_folium(m_heatmap, use_container_width=True, height=700, returned_objects=[])
+                else:
+                    st.info("Nenhum dado para exibir no mapa de calor com os filtros atuais.")
         else:
             st.warning("Nenhum dado para exibir com os filtros atuais.")
 else:
