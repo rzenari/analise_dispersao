@@ -6,3 +6,4 @@ numpy
 scipy
 folium
 streamlit-folium
+h3
