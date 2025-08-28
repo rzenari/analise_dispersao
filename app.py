@@ -257,12 +257,7 @@ if uploaded_file is not None:
                     
                     df_hex = df_filtrado.groupby('hex_id').size().reset_index(name='contagem')
 
-                    # ===============================================================
-                    # FUNÇÃO INTERNA CORRIGIDA PARA O MAPA HEXAGONAL
-                    # ===============================================================
                     def hex_to_polygon(hex_id):
-                        # 1. Remove o argumento geo_json=True
-                        # 2. Inverte a ordem de (lat, lon) para (lon, lat) para a biblioteca de desenho
                         points = [(lon, lat) for lat, lon in h3.cell_to_boundary(hex_id)]
                         return Polygon(points)
 
@@ -273,10 +268,10 @@ if uploaded_file is not None:
                     m_hex = folium.Map(location=map_center_hex, zoom_start=11)
 
                     folium.Choropleth(
-                        geo_data=gdf_hex,
+                        geo_data=gdf_hex.to_json(), # Convertemos o GeoDataFrame para GeoJSON string
                         data=df_hex,
                         columns=['hex_id', 'contagem'],
-                        key_on='feature.id',
+                        key_on='feature.properties.hex_id', # Mudamos a forma como o ID é referenciado no GeoJSON
                         fill_color='YlOrRd',
                         fill_opacity=0.7,
                         line_opacity=0.2,
