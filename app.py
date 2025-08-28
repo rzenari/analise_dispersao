@@ -230,7 +230,8 @@ if uploaded_file is not None:
                         for col in ['prioridade', 'centro_operativo', 'corte_recorte']:
                             if col in row: popup_text += f"{col.replace('_', ' ').title()}: {str(row[col])}<br>"
                         folium.Marker(location=[row['latitude'], row['longitude']], popup=popup_text).add_to(marker_cluster)
-                    st_folium(m, use_container_width=True, height=700, returned_objects=[])
+                    
+                    st_folium(m, width='stretch', height=700, returned_objects=[])
 
             with tab2:
                 st.subheader("Análise de Cluster por Centro Operativo")
@@ -239,7 +240,7 @@ if uploaded_file is not None:
                     'Nº de Clusters': x[x['cluster'] != -1]['cluster'].nunique(),
                     'Nº Agrupados': len(x[x['cluster'] != -1]),
                     'Nº Dispersos': len(x[x['cluster'] == -1])
-                })).reset_index()
+                }), include_groups=False).reset_index()
                 resumo_co['% Agrupados'] = (resumo_co['Nº Agrupados'] / resumo_co['Total de Serviços'] * 100).round(1)
                 resumo_co['% Dispersos'] = (resumo_co['Nº Dispersos'] / resumo_co['Total de Serviços'] * 100).round(1)
                 resumo_co = resumo_co[['centro_operativo', 'Total de Serviços', 'Nº de Clusters', 'Nº Agrupados', '% Agrupados', 'Nº Dispersos', '% Dispersos']]
@@ -248,15 +249,17 @@ if uploaded_file is not None:
             with tab3:
                 st.subheader("Mapa de Calor dos Serviços")
                 st.write("Visualize as áreas de maior concentração de serviços através de um mapa de calor. Áreas mais vermelhas indicam maior densidade de chamados.")
-                if not df_filtrado.empty:
+                
+                limite_heatmap = 15000
+                if len(df_filtrado) <= limite_heatmap:
                     map_center_heatmap = [df_filtrado.latitude.mean(), df_filtrado.longitude.mean()]
                     m_heatmap = folium.Map(location=map_center_heatmap, zoom_start=11)
                     heat_data = df_filtrado[['latitude', 'longitude']].values.tolist()
                     HeatMap(heat_data, radius=radius_heatmap).add_to(m_heatmap)
-                    st_folium(m_heatmap, use_container_width=True, height=700, returned_objects=[])
+                    st_folium(m_heatmap, width='stretch', height=700, returned_objects=[])
                 else:
-                    st.info("Nenhum dado para exibir no mapa de calor com os filtros atuais.")
-            
+                    st.info(f"O mapa de calor está desabilitado para seleções com mais de {limite_heatmap:,.0f} pontos para garantir a performance. Por favor, aplique mais filtros para visualizar.".replace(",", "."))
+
             with tab4:
                 st.subheader("As Metodologias por Trás da Análise")
                 st.markdown("""
