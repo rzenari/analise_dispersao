@@ -26,16 +26,17 @@ st.write("Faça o upload da sua planilha de cortes para analisar a distribuiçã
 # 3. FUNÇÕES DE ANÁLISE (COM CACHE PARA PERFORMANCE)
 # ==============================================================================
 
+# Unificamos em uma única função de carregamento para garantir consistência.
+# A aposta é que as otimizações de NNI e Hexbin são suficientes para a performance.
 @st.cache_data
-def carregar_dados_otimizado(arquivo_enviado):
-    """Lê o arquivo de forma otimizada, carregando apenas as colunas necessárias para a análise."""
-    colunas_necessarias = ['latitude', 'longitude', 'sucursal', 'centro_operativo', 'corte_recorte', 'prioridade', 'numero_ordem']
+def carregar_dados_completos(arquivo_enviado):
+    """Lê o arquivo completo com todas as colunas, que será a fonte única de dados."""
     arquivo_enviado.seek(0)
     
     def processar_dataframe(df):
         df.columns = df.columns.str.lower().str.strip()
-        if not all(col in df.columns for col in colunas_necessarias):
-            st.error("ERRO: Colunas essenciais (como latitude, longitude, numero_ordem, etc.) não foram encontradas."); st.write("Colunas necessárias:", colunas_necessarias); st.write("Colunas encontradas:", df.columns.tolist())
+        if 'latitude' not in df.columns or 'longitude' not in df.columns:
+            st.error("ERRO: Colunas 'latitude' e/ou 'longitude' não foram encontradas."); st.write("Colunas encontradas:", df.columns.tolist())
             return None
         df['latitude'] = df['latitude'].astype(str).str.replace(',', '.').astype(float)
         df['longitude'] = df['longitude'].astype(str).str.replace(',', '.').astype(float)
@@ -43,46 +44,20 @@ def carregar_dados_otimizado(arquivo_enviado):
         return df
 
     try:
-        df_csv = pd.read_csv(arquivo_enviado, encoding='utf-16', sep='\t', usecols=lambda c: c.strip().lower() in colunas_necessarias)
-        st.success("Arquivo CSV lido com sucesso (codificação: utf-16)."); return processar_dataframe(df_csv)
-    except Exception:
-        try:
-            arquivo_enviado.seek(0)
-            df_csv_latin = pd.read_csv(arquivo_enviado, encoding='latin-1', sep=None, engine='python', usecols=lambda c: c.strip().lower() in colunas_necessarias)
-            st.success("Arquivo CSV lido com sucesso (codificação: latin-1)."); return processar_dataframe(df_csv_latin)
-        except Exception:
-            try:
-                arquivo_enviado.seek(0)
-                df_excel_full = pd.read_excel(arquivo_enviado, engine='openpyxl')
-                df_excel_full.columns = df_excel_full.columns.str.lower().str.strip()
-                colunas_para_usar = [col for col in colunas_necessarias if col in df_excel_full.columns]
-                df_excel = df_excel_full[colunas_para_usar]
-                st.success("Arquivo Excel lido com sucesso."); return processar_dataframe(df_excel)
-            except Exception as e:
-                st.error(f"Não foi possível ler o arquivo. Último erro: {e}"); return None
-
-@st.cache_data
-def carregar_dados_completos(arquivo_enviado):
-    """Lê o arquivo completo com todas as colunas para a funcionalidade de download."""
-    arquivo_enviado.seek(0)
-    try:
         df = pd.read_csv(arquivo_enviado, encoding='utf-16', sep='\t')
-        df.columns = df.columns.str.lower().str.strip()
-        return df
+        st.success("Arquivo CSV lido com sucesso (codificação: utf-16)."); return processar_dataframe(df)
     except Exception:
         try:
             arquivo_enviado.seek(0)
             df = pd.read_csv(arquivo_enviado, encoding='latin-1', sep=None, engine='python')
-            df.columns = df.columns.str.lower().str.strip()
-            return df
+            st.success("Arquivo CSV lido com sucesso (codificação: latin-1)."); return processar_dataframe(df)
         except Exception:
             try:
                 arquivo_enviado.seek(0)
                 df = pd.read_excel(arquivo_enviado, engine='openpyxl')
-                df.columns = df.columns.str.lower().str.strip()
-                return df
-            except Exception:
-                return None
+                st.success("Arquivo Excel lido com sucesso."); return processar_dataframe(df)
+            except Exception as e:
+                st.error(f"Não foi possível ler o arquivo. Último erro: {e}"); return None
 
 def calcular_nni_otimizado(gdf):
     """Calcula NNI de forma otimizada para memória."""
@@ -103,13 +78,19 @@ def calcular_nni_otimizado(gdf):
     except Exception as e: return None, f"Erro no cálculo: {e}"
 
 def executar_dbscan(gdf, eps_km=0.5, min_samples=3):
-    """Executa o DBSCAN para encontrar clusters."""
-    if gdf.empty or len(gdf) < min_samples: gdf['cluster'] = -1; return gdf
+    """Executa o DBSCAN para encontrar clusters e retorna o GeoDataFrame com a coluna 'cluster'."""
+    if gdf.empty or len(gdf) < min_samples: 
+        gdf['cluster'] = -1
+        return gdf
+    
+    # Copiando para evitar SettingWithCopyWarning
+    gdf_copy = gdf.copy()
+    
     raio_terra_km = 6371; eps_rad = eps_km / raio_terra_km
-    coords = np.radians(gdf[['latitude', 'longitude']].values)
+    coords = np.radians(gdf_copy[['latitude', 'longitude']].values)
     db = DBSCAN(eps=eps_rad, min_samples=min_samples, algorithm='ball_tree', metric='haversine').fit(coords)
-    gdf['cluster'] = db.labels_
-    return gdf
+    gdf_copy['cluster'] = db.labels_
+    return gdf_copy
 
 def gerar_resumo_didatico(nni_valor, n_clusters, percent_dispersos, is_media=False):
     """Gera um texto interpretativo considerando tanto o NNI quanto a % de dispersão."""
@@ -155,20 +136,17 @@ st.sidebar.header("Controles")
 uploaded_file = st.sidebar.file_uploader("Escolha a planilha de cortes", type=["csv", "xlsx", "xls"])
 
 if uploaded_file is not None:
-    # CORREÇÃO: As duas funções de carregamento foram movidas para dentro deste bloco
-    # para garantir que df_completo seja definido antes de ser usado.
     df_completo = carregar_dados_completos(uploaded_file)
-    df_analise = carregar_dados_otimizado(uploaded_file)
     
-    if df_analise is not None and df_completo is not None:
-        st.sidebar.success(f"{len(df_analise)} registros carregados!")
+    if df_completo is not None:
+        st.sidebar.success(f"{len(df_completo)} registros carregados!")
         st.sidebar.markdown("### Filtros da Análise")
         
         filtros = ['sucursal', 'centro_operativo', 'corte_recorte', 'prioridade']
         valores_selecionados = {}
         for coluna in filtros:
-            if coluna in df_analise.columns:
-                lista_unica = df_analise[coluna].dropna().unique().tolist()
+            if coluna in df_completo.columns:
+                lista_unica = df_completo[coluna].dropna().unique().tolist()
                 opcoes = sorted([str(item) for item in lista_unica])
                 
                 if coluna == 'prioridade':
@@ -176,7 +154,7 @@ if uploaded_file is not None:
                 else:
                     valores_selecionados[coluna] = st.sidebar.selectbox(f"{coluna.replace('_', ' ').title()}", ["Todos"] + opcoes)
 
-        df_filtrado = df_analise.copy()
+        df_filtrado = df_completo.copy()
         for coluna, valor in valores_selecionados.items():
             if coluna in df_filtrado.columns:
                 if coluna == 'prioridade':
@@ -192,21 +170,40 @@ if uploaded_file is not None:
             min_samples_cluster = st.sidebar.slider("Mínimo de Pontos por Cluster", 2, 20, 5, 1, help="Número mínimo de pontos para formar um hotspot.")
             hex_resolution = st.sidebar.slider("Resolução do Mapa Hexagonal", 5, 10, 8, 1, help="Define o tamanho dos hexágonos. Números maiores = hexágonos menores e mais detalhados.")
 
-            gdf_com_clusters = executar_dbscan(
-                gpd.GeoDataFrame(df_filtrado, geometry=gpd.points_from_xy(df_filtrado.longitude, df_filtrado.latitude), crs="EPSG:4326"),
-                eps_km=eps_cluster_km, 
-                min_samples=min_samples_cluster
-            )
+            # GeoDataFrame base para as análises
+            gdf_base = gpd.GeoDataFrame(df_filtrado, geometry=gpd.points_from_xy(df_filtrado.longitude, df_filtrado.latitude), crs="EPSG:4326")
             
+            # Executa o DBSCAN para obter os clusters
+            gdf_com_clusters = executar_dbscan(gdf_base, eps_km=eps_cluster_km, min_samples=min_samples_cluster)
+            
+            # ===============================================================
+            # NOVA SEÇÃO DE DOWNLOADS NA BARRA LATERAL (USA gdf_com_clusters)
+            # ===============================================================
             st.sidebar.markdown("### 📥 Downloads")
-            ordens_agrupadas = gdf_com_clusters[gdf_com_clusters['cluster'] != -1]['numero_ordem']
-            ordens_dispersas = gdf_com_clusters[gdf_com_clusters['cluster'] == -1]['numero_ordem']
-            df_agrupados_download = df_completo[df_completo['numero_ordem'].isin(ordens_agrupadas)]
-            df_dispersos_download = df_completo[df_completo['numero_ordem'].isin(ordens_dispersas)]
+            
+            # Separa os dataframes com base no resultado do cluster
+            df_agrupados_download = gdf_com_clusters[gdf_com_clusters['cluster'] != -1].drop(columns=['geometry'])
+            df_dispersos_download = gdf_com_clusters[gdf_com_clusters['cluster'] == -1].drop(columns=['geometry'])
+            
+            # Converte para CSV em memória
             csv_agrupados = df_agrupados_download.to_csv(index=False).encode('utf-8-sig')
             csv_dispersos = df_dispersos_download.to_csv(index=False).encode('utf-8-sig')
-            st.sidebar.download_button(label="⬇️ Baixar Serviços Agrupados", data=csv_agrupados, file_name='servicos_agrupados.csv', mime='text/csv', disabled=df_agrupados_download.empty)
-            st.sidebar.download_button(label="⬇️ Baixar Serviços Dispersos", data=csv_dispersos, file_name='servicos_dispersos.csv', mime='text/csv', disabled=df_dispersos_download.empty)
+            
+            st.sidebar.download_button(
+                label="⬇️ Baixar Serviços Agrupados",
+                data=csv_agrupados,
+                file_name='servicos_agrupados.csv',
+                mime='text/csv',
+                disabled=df_agrupados_download.empty
+            )
+            
+            st.sidebar.download_button(
+                label="⬇️ Baixar Serviços Dispersos",
+                data=csv_dispersos,
+                file_name='servicos_dispersos.csv',
+                mime='text/csv',
+                disabled=df_dispersos_download.empty
+            )
 
             tab1, tab2, tab3, tab4 = st.tabs(["🗺️ Análise Geográfica e Mapa", "📊 Resumo por Centro Operativo", "🔥 Mapa Hexagonal de Densidade", "💡 Metodologia"])
 
@@ -214,6 +211,7 @@ if uploaded_file is not None:
                 col1, col2, col3 = st.columns(3)
                 col1.metric("Total de Cortes Carregados", len(df_completo))
                 col2.metric("Cortes na Seleção Atual", len(df_filtrado))
+                
                 nni_valor_final = None; is_media_nni = False
                 centros_operativos_selecionados = gdf_com_clusters['centro_operativo'].unique()
                 if len(centros_operativos_selecionados) == 1 or len(gdf_com_clusters) < 5000:
@@ -231,15 +229,19 @@ if uploaded_file is not None:
                         elif nni_valor_final > 1: nni_texto = f"Disperso (Média: {nni_valor_final:.2f})"
                         else: nni_texto = f"Aleatório (Média: {nni_valor_final:.2f})"
                     else: nni_texto = "Insuficiente para cálculo"
+                
                 help_nni = "O Índice do Vizinho Mais Próximo (NNI) mede se o padrão dos pontos é agrupado, disperso ou aleatório. NNI < 1: Agrupado (pontos mais próximos que o esperado). NNI ≈ 1: Aleatório (sem padrão). NNI > 1: Disperso (pontos mais espalhados que o esperado)."
                 col3.metric("Padrão de Dispersão (NNI)", nni_texto, help=help_nni)
+                
                 n_clusters_total = len(set(gdf_com_clusters['cluster'])) - (1 if -1 in gdf_com_clusters['cluster'] else 0)
                 total_pontos = len(gdf_com_clusters)
                 n_ruido = list(gdf_com_clusters['cluster']).count(-1)
                 percent_dispersos = (n_ruido / total_pontos * 100) if total_pontos > 0 else 0
+
                 with st.expander("🔍 O que estes números significam? Clique para ver a análise", expanded=True):
                      resumo_html = gerar_resumo_didatico(nni_valor_final, n_clusters_total, percent_dispersos, is_media=is_media_nni)
                      st.markdown(resumo_html, unsafe_allow_html=True)
+
                 st.subheader("Resumo da Análise de Cluster")
                 n_agrupados = total_pontos - n_ruido
                 if total_pontos > 0:
@@ -251,8 +253,10 @@ if uploaded_file is not None:
                     sub_c1.metric("% Agrupados", f"{percent_agrupados:.1f}%")
                     sub_c2.metric("Nº Dispersos", f"{n_ruido}", help="Total de serviços isolados, que não pertencem a nenhum hotspot.")
                     sub_c2.metric("% Dispersos", f"{percent_dispersos:.1f}%")
+                
                 st.subheader(f"Mapa Interativo de Hotspots")
                 st.write("Dê zoom no mapa para expandir os agrupamentos e ver os pontos individuais.")
+                
                 if not gdf_com_clusters.empty:
                     map_center = [gdf_com_clusters.latitude.mean(), gdf_com_clusters.longitude.mean()]
                     m = folium.Map(location=map_center, zoom_start=11)
@@ -266,7 +270,6 @@ if uploaded_file is not None:
 
             with tab2:
                 st.subheader("Análise de Cluster por Centro Operativo")
-                # CORREÇÃO: Adicionado include_groups=False para silenciar o aviso do Pandas
                 resumo_co = gdf_com_clusters.groupby('centro_operativo').apply(lambda x: pd.Series({
                     'Total de Serviços': len(x),
                     'Nº de Clusters': x[x['cluster'] != -1]['cluster'].nunique(),
@@ -281,7 +284,8 @@ if uploaded_file is not None:
             with tab3:
                 st.subheader("Mapa Hexagonal de Densidade")
                 st.write("Visualize a densidade de serviços em áreas geográficas fixas. A cor de cada hexágono representa o número de cortes em seu interior. Esta visão é estável e não muda com o zoom.")
-                limite_hexbin = 15000
+                
+                limite_hexbin = 25000
                 if len(df_filtrado) <= limite_hexbin:
                     df_filtrado['hex_id'] = df_filtrado.apply(lambda row: h3.latlng_to_cell(row['latitude'], row['longitude'], hex_resolution), axis=1)
                     df_hex = df_filtrado.groupby('hex_id').size().reset_index(name='contagem')
