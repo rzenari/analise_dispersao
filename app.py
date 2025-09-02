@@ -27,14 +27,15 @@ st.write("Faça o upload da sua planilha de cortes para analisar a distribuiçã
 # ==============================================================================
 
 @st.cache_data
-def carregar_dados(arquivo_enviado):
-    """Lê o arquivo de forma otimizada, carregando apenas as colunas necessárias."""
-    colunas_necessarias = ['latitude', 'longitude', 'sucursal', 'centro_operativo', 'corte_recorte', 'prioridade']
+def carregar_dados_otimizado(arquivo_enviado):
+    """Lê o arquivo de forma otimizada, carregando apenas as colunas necessárias para a análise."""
+    colunas_necessarias = ['latitude', 'longitude', 'sucursal', 'centro_operativo', 'corte_recorte', 'prioridade', 'numero_ordem']
+    arquivo_enviado.seek(0)
     
     def processar_dataframe(df):
         df.columns = df.columns.str.lower().str.strip()
         if not all(col in df.columns for col in colunas_necessarias):
-            st.error("ERRO: Colunas essenciais não foram encontradas."); st.write("Colunas necessárias:", colunas_necessarias); st.write("Colunas encontradas:", df.columns.tolist())
+            st.error("ERRO: Colunas essenciais (como latitude, longitude, numero_ordem, etc.) não foram encontradas."); st.write("Colunas necessárias:", colunas_necessarias); st.write("Colunas encontradas:", df.columns.tolist())
             return None
         df['latitude'] = df['latitude'].astype(str).str.replace(',', '.').astype(float)
         df['longitude'] = df['longitude'].astype(str).str.replace(',', '.').astype(float)
@@ -42,7 +43,6 @@ def carregar_dados(arquivo_enviado):
         return df
 
     try:
-        arquivo_enviado.seek(0)
         df_csv = pd.read_csv(arquivo_enviado, encoding='utf-16', sep='\t', usecols=lambda c: c.strip().lower() in colunas_necessarias)
         st.success("Arquivo CSV lido com sucesso (codificação: utf-16)."); return processar_dataframe(df_csv)
     except Exception:
@@ -53,13 +53,36 @@ def carregar_dados(arquivo_enviado):
         except Exception:
             try:
                 arquivo_enviado.seek(0)
-                df_excel = pd.read_excel(arquivo_enviado, engine='openpyxl')
-                df_excel.columns = df_excel.columns.str.lower().str.strip()
-                colunas_para_usar = [col for col in colunas_necessarias if col in df_excel.columns]
-                df = df_excel[colunas_para_usar]
-                st.success("Arquivo Excel lido com sucesso."); return processar_dataframe(df)
+                df_excel_full = pd.read_excel(arquivo_enviado, engine='openpyxl')
+                df_excel_full.columns = df_excel_full.columns.str.lower().str.strip()
+                colunas_para_usar = [col for col in colunas_necessarias if col in df_excel_full.columns]
+                df_excel = df_excel_full[colunas_para_usar]
+                st.success("Arquivo Excel lido com sucesso."); return processar_dataframe(df_excel)
             except Exception as e:
                 st.error(f"Não foi possível ler o arquivo. Último erro: {e}"); return None
+
+@st.cache_data
+def carregar_dados_completos(arquivo_enviado):
+    """Lê o arquivo completo com todas as colunas para a funcionalidade de download."""
+    arquivo_enviado.seek(0)
+    try:
+        df = pd.read_csv(arquivo_enviado, encoding='utf-16', sep='\t')
+        df.columns = df.columns.str.lower().str.strip()
+        return df
+    except Exception:
+        try:
+            arquivo_enviado.seek(0)
+            df = pd.read_csv(arquivo_enviado, encoding='latin-1', sep=None, engine='python')
+            df.columns = df.columns.str.lower().str.strip()
+            return df
+        except Exception:
+            try:
+                arquivo_enviado.seek(0)
+                df = pd.read_excel(arquivo_enviado, engine='openpyxl')
+                df.columns = df.columns.str.lower().str.strip()
+                return df
+            except Exception:
+                return None
 
 def calcular_nni_otimizado(gdf):
     """Calcula NNI de forma otimizada para memória."""
@@ -132,16 +155,18 @@ st.sidebar.header("Controles")
 uploaded_file = st.sidebar.file_uploader("Escolha a planilha de cortes", type=["csv", "xlsx", "xls"])
 
 if uploaded_file is not None:
-    df_completo = carregar_dados(uploaded_file)
-    if df_completo is not None:
-        st.sidebar.success(f"{len(df_completo)} registros carregados!")
+    df_analise = carregar_dados_otimizado(uploaded_file)
+    df_original_completo = carregar_dados_completos(uploaded_file)
+
+    if df_analise is not None and df_original_completo is not None:
+        st.sidebar.success(f"{len(df_analise)} registros carregados!")
         st.sidebar.markdown("### Filtros da Análise")
         
         filtros = ['sucursal', 'centro_operativo', 'corte_recorte', 'prioridade']
         valores_selecionados = {}
         for coluna in filtros:
-            if coluna in df_completo.columns:
-                lista_unica = df_completo[coluna].dropna().unique().tolist()
+            if coluna in df_analise.columns:
+                lista_unica = df_analise[coluna].dropna().unique().tolist()
                 opcoes = sorted([str(item) for item in lista_unica])
                 
                 if coluna == 'prioridade':
@@ -149,7 +174,7 @@ if uploaded_file is not None:
                 else:
                     valores_selecionados[coluna] = st.sidebar.selectbox(f"{coluna.replace('_', ' ').title()}", ["Todos"] + opcoes)
 
-        df_filtrado = df_completo.copy()
+        df_filtrado = df_analise.copy()
         for coluna, valor in valores_selecionados.items():
             if coluna in df_filtrado.columns:
                 if coluna == 'prioridade':
@@ -171,13 +196,22 @@ if uploaded_file is not None:
                 min_samples=min_samples_cluster
             )
             
+            st.sidebar.markdown("### 📥 Downloads")
+            ordens_agrupadas = gdf_com_clusters[gdf_com_clusters['cluster'] != -1]['numero_ordem']
+            ordens_dispersas = gdf_com_clusters[gdf_com_clusters['cluster'] == -1]['numero_ordem']
+            df_agrupados_download = df_original_completo[df_original_completo['numero_ordem'].isin(ordens_agrupadas)]
+            df_dispersos_download = df_original_completo[df_original_completo['numero_ordem'].isin(ordens_dispersas)]
+            csv_agrupados = df_agrupados_download.to_csv(index=False).encode('utf-8-sig')
+            csv_dispersos = df_dispersos_download.to_csv(index=False).encode('utf-8-sig')
+            st.sidebar.download_button(label="⬇️ Baixar Serviços Agrupados", data=csv_agrupados, file_name='servicos_agrupados.csv', mime='text/csv', disabled=df_agrupados_download.empty)
+            st.sidebar.download_button(label="⬇️ Baixar Serviços Dispersos", data=csv_dispersos, file_name='servicos_dispersos.csv', mime='text/csv', disabled=df_dispersos_download.empty)
+
             tab1, tab2, tab3, tab4 = st.tabs(["🗺️ Análise Geográfica e Mapa", "📊 Resumo por Centro Operativo", "🔥 Mapa Hexagonal de Densidade", "💡 Metodologia"])
 
             with tab1:
                 col1, col2, col3 = st.columns(3)
                 col1.metric("Total de Cortes Carregados", len(df_completo))
                 col2.metric("Cortes na Seleção Atual", len(df_filtrado))
-                
                 nni_valor_final = None; is_media_nni = False
                 centros_operativos_selecionados = gdf_com_clusters['centro_operativo'].unique()
                 if len(centros_operativos_selecionados) == 1 or len(gdf_com_clusters) < 5000:
@@ -195,19 +229,15 @@ if uploaded_file is not None:
                         elif nni_valor_final > 1: nni_texto = f"Disperso (Média: {nni_valor_final:.2f})"
                         else: nni_texto = f"Aleatório (Média: {nni_valor_final:.2f})"
                     else: nni_texto = "Insuficiente para cálculo"
-                
                 help_nni = "O Índice do Vizinho Mais Próximo (NNI) mede se o padrão dos pontos é agrupado, disperso ou aleatório. NNI < 1: Agrupado (pontos mais próximos que o esperado). NNI ≈ 1: Aleatório (sem padrão). NNI > 1: Disperso (pontos mais espalhados que o esperado)."
                 col3.metric("Padrão de Dispersão (NNI)", nni_texto, help=help_nni)
-                
                 n_clusters_total = len(set(gdf_com_clusters['cluster'])) - (1 if -1 in gdf_com_clusters['cluster'] else 0)
                 total_pontos = len(gdf_com_clusters)
                 n_ruido = list(gdf_com_clusters['cluster']).count(-1)
                 percent_dispersos = (n_ruido / total_pontos * 100) if total_pontos > 0 else 0
-
                 with st.expander("🔍 O que estes números significam? Clique para ver a análise", expanded=True):
                      resumo_html = gerar_resumo_didatico(nni_valor_final, n_clusters_total, percent_dispersos, is_media=is_media_nni)
                      st.markdown(resumo_html, unsafe_allow_html=True)
-
                 st.subheader("Resumo da Análise de Cluster")
                 n_agrupados = total_pontos - n_ruido
                 if total_pontos > 0:
@@ -219,10 +249,8 @@ if uploaded_file is not None:
                     sub_c1.metric("% Agrupados", f"{percent_agrupados:.1f}%")
                     sub_c2.metric("Nº Dispersos", f"{n_ruido}", help="Total de serviços isolados, que não pertencem a nenhum hotspot.")
                     sub_c2.metric("% Dispersos", f"{percent_dispersos:.1f}%")
-                
                 st.subheader(f"Mapa Interativo de Hotspots")
                 st.write("Dê zoom no mapa para expandir os agrupamentos e ver os pontos individuais.")
-                
                 if not gdf_com_clusters.empty:
                     map_center = [gdf_com_clusters.latitude.mean(), gdf_com_clusters.longitude.mean()]
                     m = folium.Map(location=map_center, zoom_start=11)
@@ -250,34 +278,22 @@ if uploaded_file is not None:
             with tab3:
                 st.subheader("Mapa Hexagonal de Densidade")
                 st.write("Visualize a densidade de serviços em áreas geográficas fixas. A cor de cada hexágono representa o número de cortes em seu interior. Esta visão é estável e não muda com o zoom.")
-                
                 limite_hexbin = 25000
                 if len(df_filtrado) <= limite_hexbin:
                     df_filtrado['hex_id'] = df_filtrado.apply(lambda row: h3.latlng_to_cell(row['latitude'], row['longitude'], hex_resolution), axis=1)
-                    
                     df_hex = df_filtrado.groupby('hex_id').size().reset_index(name='contagem')
-
                     def hex_to_polygon(hex_id):
                         points = [(lon, lat) for lat, lon in h3.cell_to_boundary(hex_id)]
                         return Polygon(points)
-
                     df_hex['geometry'] = df_hex['hex_id'].apply(hex_to_polygon)
                     gdf_hex = gpd.GeoDataFrame(df_hex, crs="EPSG:4326")
-
                     map_center_hex = [df_filtrado.latitude.mean(), df_filtrado.longitude.mean()]
                     m_hex = folium.Map(location=map_center_hex, zoom_start=11)
-
                     folium.Choropleth(
-                        geo_data=gdf_hex.to_json(), # Convertemos o GeoDataFrame para GeoJSON string
-                        data=df_hex,
-                        columns=['hex_id', 'contagem'],
-                        key_on='feature.properties.hex_id', # Mudamos a forma como o ID é referenciado no GeoJSON
-                        fill_color='YlOrRd',
-                        fill_opacity=0.7,
-                        line_opacity=0.2,
-                        legend_name='Contagem de Serviços por Hexágono'
+                        geo_data=gdf_hex.to_json(), data=df_hex, columns=['hex_id', 'contagem'],
+                        key_on='feature.properties.hex_id', fill_color='YlOrRd', fill_opacity=0.7,
+                        line_opacity=0.2, legend_name='Contagem de Serviços por Hexágono'
                     ).add_to(m_hex)
-                    
                     st_folium(m_hex, use_container_width=True, height=700, returned_objects=[])
                 else:
                     st.info(f"O mapa hexagonal está desabilitado para seleções com mais de {limite_hexbin:,.0f} pontos para garantir a performance. Por favor, aplique mais filtros para visualizar.".replace(",", "."))
@@ -302,7 +318,6 @@ if uploaded_file is not None:
                 
                 Juntas, essas duas técnicas fornecem uma visão completa: o DBSCAN **encontra e conta** os agrupamentos, enquanto o NNI nos dá uma **medida geral** do grau de concentração de toda a sua operação.
                 """)
-                
                 st.subheader("Perguntas Frequentes (FAQ)")
                 st.markdown("""
                 #### O agrupamento dos serviços é definido por "círculos"? Os pontos de um "círculo" invadem o outro? Como fica a região aglomerada por 4 "círculos"? Não fica um espaço não mapeado no meio?
