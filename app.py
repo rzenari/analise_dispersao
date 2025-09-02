@@ -155,10 +155,12 @@ st.sidebar.header("Controles")
 uploaded_file = st.sidebar.file_uploader("Escolha a planilha de cortes", type=["csv", "xlsx", "xls"])
 
 if uploaded_file is not None:
+    # CORREÇÃO: As duas funções de carregamento foram movidas para dentro deste bloco
+    # para garantir que df_completo seja definido antes de ser usado.
+    df_completo = carregar_dados_completos(uploaded_file)
     df_analise = carregar_dados_otimizado(uploaded_file)
-    df_original_completo = carregar_dados_completos(uploaded_file)
-
-    if df_analise is not None and df_original_completo is not None:
+    
+    if df_analise is not None and df_completo is not None:
         st.sidebar.success(f"{len(df_analise)} registros carregados!")
         st.sidebar.markdown("### Filtros da Análise")
         
@@ -199,8 +201,8 @@ if uploaded_file is not None:
             st.sidebar.markdown("### 📥 Downloads")
             ordens_agrupadas = gdf_com_clusters[gdf_com_clusters['cluster'] != -1]['numero_ordem']
             ordens_dispersas = gdf_com_clusters[gdf_com_clusters['cluster'] == -1]['numero_ordem']
-            df_agrupados_download = df_original_completo[df_original_completo['numero_ordem'].isin(ordens_agrupadas)]
-            df_dispersos_download = df_original_completo[df_original_completo['numero_ordem'].isin(ordens_dispersas)]
+            df_agrupados_download = df_completo[df_completo['numero_ordem'].isin(ordens_agrupadas)]
+            df_dispersos_download = df_completo[df_completo['numero_ordem'].isin(ordens_dispersas)]
             csv_agrupados = df_agrupados_download.to_csv(index=False).encode('utf-8-sig')
             csv_dispersos = df_dispersos_download.to_csv(index=False).encode('utf-8-sig')
             st.sidebar.download_button(label="⬇️ Baixar Serviços Agrupados", data=csv_agrupados, file_name='servicos_agrupados.csv', mime='text/csv', disabled=df_agrupados_download.empty)
@@ -264,6 +266,7 @@ if uploaded_file is not None:
 
             with tab2:
                 st.subheader("Análise de Cluster por Centro Operativo")
+                # CORREÇÃO: Adicionado include_groups=False para silenciar o aviso do Pandas
                 resumo_co = gdf_com_clusters.groupby('centro_operativo').apply(lambda x: pd.Series({
                     'Total de Serviços': len(x),
                     'Nº de Clusters': x[x['cluster'] != -1]['cluster'].nunique(),
@@ -278,7 +281,7 @@ if uploaded_file is not None:
             with tab3:
                 st.subheader("Mapa Hexagonal de Densidade")
                 st.write("Visualize a densidade de serviços em áreas geográficas fixas. A cor de cada hexágono representa o número de cortes em seu interior. Esta visão é estável e não muda com o zoom.")
-                limite_hexbin = 25000
+                limite_hexbin = 15000
                 if len(df_filtrado) <= limite_hexbin:
                     df_filtrado['hex_id'] = df_filtrado.apply(lambda row: h3.latlng_to_cell(row['latitude'], row['longitude'], hex_resolution), axis=1)
                     df_hex = df_filtrado.groupby('hex_id').size().reset_index(name='contagem')
