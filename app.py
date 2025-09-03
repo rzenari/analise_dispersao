@@ -180,16 +180,14 @@ if uploaded_file is not None:
             elif tipo_visualizacao == "Apenas Dispersos":
                 gdf_visualizacao = gdf_com_clusters[gdf_com_clusters['cluster'] == -1]
             
-            st.sidebar.markdown("### 📥 Downloads")
             if 'numero_ordem' in gdf_com_clusters.columns:
+                st.sidebar.markdown("### 📥 Downloads")
                 df_agrupados_download = gdf_com_clusters[gdf_com_clusters['cluster'] != -1].drop(columns=['geometry'])
                 df_dispersos_download = gdf_com_clusters[gdf_com_clusters['cluster'] == -1].drop(columns=['geometry'])
                 csv_agrupados = df_agrupados_download.to_csv(index=False).encode('utf-8-sig')
                 csv_dispersos = df_dispersos_download.to_csv(index=False).encode('utf-8-sig')
                 st.sidebar.download_button(label="⬇️ Baixar Serviços Agrupados", data=csv_agrupados, file_name='servicos_agrupados.csv', mime='text/csv', disabled=df_agrupados_download.empty)
                 st.sidebar.download_button(label="⬇️ Baixar Serviços Dispersos", data=csv_dispersos, file_name='servicos_dispersos.csv', mime='text/csv', disabled=df_dispersos_download.empty)
-            else:
-                st.sidebar.warning("Coluna 'numero_ordem' não encontrada para gerar downloads.")
 
             tab1, tab2, tab3, tab4 = st.tabs(["🗺️ Análise Geográfica e Mapa", "📊 Resumo por Centro Operativo", "📍 Contorno dos Clusters", "💡 Metodologia"])
 
@@ -275,15 +273,34 @@ if uploaded_file is not None:
                     m_hull = folium.Map(location=map_center_hull, zoom_start=11)
                     
                     try:
+                        # Passo 1: Calcular contagem de pontos por cluster
+                        counts = gdf_clusters_reais.groupby('cluster').size().rename('contagem')
+                        
+                        # Passo 2: Gerar os polígonos (convex hull) para cada cluster
                         hulls = gdf_clusters_reais.dissolve(by='cluster').convex_hull
                         gdf_hulls = gpd.GeoDataFrame(geometry=hulls).reset_index()
+
+                        # Passo 3: Calcular área em km²
+                        gdf_hulls_proj = gdf_hulls.to_crs("EPSG:3857")
+                        gdf_hulls['area_km2'] = (gdf_hulls_proj.geometry.area / 1_000_000).round(2)
+
+                        # Passo 4: Juntar contagem e calcular densidade
+                        gdf_hulls = gdf_hulls.merge(counts, on='cluster')
+                        gdf_hulls['densidade'] = (gdf_hulls['contagem'] / gdf_hulls['area_km2']).round(1)
                         
+                        # Adiciona os polígonos ao mapa
                         folium.GeoJson(
                             gdf_hulls,
                             style_function=lambda x: {'color': 'red', 'weight': 2, 'fillColor': 'red', 'fillOpacity': 0.2},
-                            tooltip=folium.GeoJsonTooltip(fields=['cluster'], aliases=['Cluster ID:'])
+                            tooltip=folium.GeoJsonTooltip(
+                                fields=['cluster', 'contagem', 'area_km2', 'densidade'],
+                                aliases=['Cluster ID:', 'Nº de Serviços:', 'Área (km²):', 'Serviços por km²:'],
+                                localize=True,
+                                sticky=True
+                            )
                         ).add_to(m_hull)
                         
+                        # Adiciona os pontos individuais usando MarkerCluster por cima
                         marker_cluster_hull = MarkerCluster().add_to(m_hull)
                         for idx, row in gdf_clusters_reais.iterrows():
                             popup_text = f"Cluster: {row['cluster']}"
@@ -321,7 +338,7 @@ if uploaded_file is not None:
                 
                 Não exatamente. Ao contrário do que se pode imaginar, o algoritmo DBSCAN não desenha círculos fixos e independentes no mapa. Ele funciona mais como uma "mancha de tinta que se espalha" para identificar as áreas densas. Ele começa em um ponto, encontra seus vizinhos dentro de um raio e, se forem densos o suficiente, expande o cluster para incluir os vizinhos dos vizinhos, criando **formas irregulares e orgânicas** que se adaptam à geografia real dos dados, como o traçado de uma rua ou o contorno de um bairro. Por isso, não ficam espaços vazios no meio de um hotspot.
                 
-                #### Qual a diferença entre o "Mapa Interativo" e o "Contorno dos Clusters"?
+                #### Qual a diferença entre o "Mapa Interativo de Hotspots" e o "Contorno dos Clusters"?
                 
                 Ambos mostram os hotspots, mas de maneiras complementares:
                 - **Mapa Interativo de Hotspots (Aba 1):** Este mapa usa uma técnica de **agrupamento visual** (`MarkerCluster`). Ele é ideal para explorar **todos** os pontos da sua seleção (agrupados e dispersos) de forma limpa. Os círculos com números são criados dinamicamente com base no seu nível de zoom e na proximidade dos pontos na tela, facilitando a navegação em grandes volumes de dados.
