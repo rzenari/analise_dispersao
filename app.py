@@ -180,7 +180,6 @@ if uploaded_file is not None:
             elif tipo_visualizacao == "Apenas Dispersos":
                 gdf_visualizacao = gdf_com_clusters[gdf_com_clusters['cluster'] == -1]
             
-            # Abaixo da análise, preparamos os dados para download
             st.sidebar.markdown("### 📥 Downloads")
             if 'numero_ordem' in gdf_com_clusters.columns:
                 df_agrupados_download = gdf_com_clusters[gdf_com_clusters['cluster'] != -1].drop(columns=['geometry'])
@@ -269,32 +268,30 @@ if uploaded_file is not None:
             with tab3:
                 st.subheader("Contorno Geográfico dos Clusters")
                 st.write("Este mapa desenha um polígono (contorno) ao redor de cada hotspot identificado, mostrando a área geográfica exata de cada agrupamento.")
-
-                # Filtra apenas os pontos que pertencem a um cluster
                 gdf_clusters_reais = gdf_visualizacao[gdf_visualizacao['cluster'] != -1]
                 
                 if not gdf_clusters_reais.empty:
                     map_center_hull = [gdf_clusters_reais.latitude.mean(), gdf_clusters_reais.longitude.mean()]
                     m_hull = folium.Map(location=map_center_hull, zoom_start=11)
-
-                    # Gera os polígonos (convex hull) para cada cluster
-                    hulls = gdf_clusters_reais.dissolve(by='cluster', aggfunc='first').convex_hull
-                    gdf_hulls = gpd.GeoDataFrame(geometry=hulls).reset_index()
                     
-                    # Adiciona os polígonos ao mapa
-                    folium.GeoJson(
-                        gdf_hulls,
-                        style_function=lambda x: {'color': 'red', 'weight': 2, 'fillColor': 'red', 'fillOpacity': 0.2},
-                        tooltip=folium.GeoJsonTooltip(fields=['cluster'], aliases=['Cluster ID:'])
-                    ).add_to(m_hull)
-                    
-                    # Adiciona os pontos individuais usando MarkerCluster por cima
-                    marker_cluster_hull = MarkerCluster().add_to(m_hull)
-                    for idx, row in gdf_clusters_reais.iterrows():
-                        popup_text = f"Cluster: {row['cluster']}"
-                        folium.Marker(location=[row['latitude'], row['longitude']], popup=popup_text).add_to(marker_cluster_hull)
+                    try:
+                        hulls = gdf_clusters_reais.dissolve(by='cluster').convex_hull
+                        gdf_hulls = gpd.GeoDataFrame(geometry=hulls).reset_index()
+                        
+                        folium.GeoJson(
+                            gdf_hulls,
+                            style_function=lambda x: {'color': 'red', 'weight': 2, 'fillColor': 'red', 'fillOpacity': 0.2},
+                            tooltip=folium.GeoJsonTooltip(fields=['cluster'], aliases=['Cluster ID:'])
+                        ).add_to(m_hull)
+                        
+                        marker_cluster_hull = MarkerCluster().add_to(m_hull)
+                        for idx, row in gdf_clusters_reais.iterrows():
+                            popup_text = f"Cluster: {row['cluster']}"
+                            folium.Marker(location=[row['latitude'], row['longitude']], popup=popup_text, icon=folium.Icon(color='blue', icon='info-sign')).add_to(marker_cluster_hull)
 
-                    st_folium(m_hull, use_container_width=True, height=700, returned_objects=[])
+                        st_folium(m_hull, use_container_width=True, height=700, returned_objects=[])
+                    except Exception as e:
+                        st.warning(f"Não foi possível desenhar os contornos dos clusters. Isso pode acontecer se um cluster tiver poucos pontos para formar uma área. Erro: {e}")
                 else:
                     st.warning("Nenhum cluster para desenhar com os filtros atuais.")
 
@@ -303,13 +300,32 @@ if uploaded_file is not None:
                 st.markdown("""
                 Para garantir uma análise precisa e confiável, utilizamos duas técnicas complementares da estatística espacial:
                 
-                #### 1. Clustering Baseado em Densidade (DBSCAN)...
-                ... [texto da metodologia] ...
+                #### 1. Clustering Baseado em Densidade (DBSCAN)
+                **O que é?** DBSCAN (Density-Based Spatial Clustering of Applications with Noise) é um algoritmo de machine learning que identifica agrupamentos de pontos em um espaço. Ele é a base da nossa contagem de "hotspots".
+                
+                **Como funciona?** O algoritmo define um "cluster" (ou hotspot) como uma área onde existem muitos pontos próximos uns dos outros. Ele agrupa esses pontos e, crucialmente, identifica os pontos que estão isolados em áreas de baixa densidade, classificando-os como "dispersos" (ou "ruído"). É a partir desta análise que calculamos o Nº de Hotspots, o % de Serviços Agrupados e o % de Serviços Dispersos.
+                
+                #### 2. Análise do Vizinho Mais Próximo (NNI)
+                **O que é?** O NNI (Nearest Neighbor Index) é um índice estatístico que responde a uma pergunta fundamental: "A distribuição dos meus pontos é agrupada, aleatória ou dispersa?" Ele é a base da nossa métrica Padrão de Dispersão.
+                
+                **Como funciona?** A análise mede a distância média entre cada serviço e seu vizinho mais próximo. Em seguida, compara essa média com a distância que seria esperada se os mesmos serviços estivessem distribuídos de forma perfeitamente aleatória na mesma área geográfica. O resultado é um índice único:
+                - **NNI < 1 (Agrupado):** Os serviços estão, em média, mais próximos uns dos outros do que o esperado pelo acaso.
+                - **NNI ≈ 1 (Aleatório):** Não há um padrão de distribuição estatisticamente relevante.
+                - **NNI > 1 (Disperso):** Os serviços estão, em média, mais espalhados uns dos outros do que o esperado pelo acaso.
+                
+                Juntas, essas duas técnicas fornecem uma visão completa: o DBSCAN **encontra e conta** os agrupamentos, enquanto o NNI nos dá uma **medida geral** do grau de concentração de toda a sua operação.
                 """)
                 st.subheader("Perguntas Frequentes (FAQ)")
                 st.markdown("""
-                #### O agrupamento dos serviços é definido por "círculos"?...
-                ... [texto do FAQ] ...
+                #### O agrupamento dos serviços é definido por "círculos"?
+                
+                Não exatamente. Ao contrário do que se pode imaginar, o algoritmo DBSCAN não desenha círculos fixos e independentes no mapa. Ele funciona mais como uma "mancha de tinta que se espalha" para identificar as áreas densas. Ele começa em um ponto, encontra seus vizinhos dentro de um raio e, se forem densos o suficiente, expande o cluster para incluir os vizinhos dos vizinhos, criando **formas irregulares e orgânicas** que se adaptam à geografia real dos dados, como o traçado de uma rua ou o contorno de um bairro. Por isso, não ficam espaços vazios no meio de um hotspot.
+                
+                #### Qual a diferença entre o "Mapa Interativo" e o "Contorno dos Clusters"?
+                
+                Ambos mostram os hotspots, mas de maneiras complementares:
+                - **Mapa Interativo de Hotspots (Aba 1):** Este mapa usa uma técnica de **agrupamento visual** (`MarkerCluster`). Ele é ideal para explorar **todos** os pontos da sua seleção (agrupados e dispersos) de forma limpa. Os círculos com números são criados dinamicamente com base no seu nível de zoom e na proximidade dos pontos na tela, facilitando a navegação em grandes volumes de dados.
+                - **Contorno dos Clusters (Aba 3):** Este mapa é a visualização direta do **resultado estatístico** do DBSCAN. Os polígonos vermelhos mostram a fronteira geográfica exata dos grupos que o algoritmo identificou como hotspots. É uma visão mais analítica, ideal para definir e visualizar as "zonas de trabalho" que precisam de atenção.
                 """)
         else:
             st.warning("Nenhum dado para exibir com os filtros atuais.")
