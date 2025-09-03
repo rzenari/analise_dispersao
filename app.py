@@ -162,9 +162,6 @@ if uploaded_file is not None:
         if not df_filtrado.empty:
             st.sidebar.markdown("### Parâmetros de Cluster")
             eps_cluster_km = st.sidebar.slider("Raio do Cluster (km)", 0.1, 5.0, 1.0, 0.1, help="Define o raio de busca para agrupar pontos no DBSCAN.")
-            # ===============================================================
-            # ALTERAÇÃO DO VALOR PADRÃO DO SLIDER
-            # ===============================================================
             min_samples_cluster = st.sidebar.slider("Mínimo de Pontos por Cluster", 2, 20, 20, 1, help="Número mínimo de pontos para formar um hotspot.")
 
             gdf_base = gpd.GeoDataFrame(df_filtrado, geometry=gpd.points_from_xy(df_filtrado.longitude, df_filtrado.latitude), crs="EPSG:4326")
@@ -243,7 +240,10 @@ if uploaded_file is not None:
                 if not gdf_visualizacao.empty:
                     map_center = [gdf_visualizacao.latitude.mean(), gdf_visualizacao.longitude.mean()]
                     m = folium.Map(location=map_center, zoom_start=11)
-                    marker_cluster = Marker_Cluster().add_to(m)
+                    # ===============================================================
+                    # CORREÇÃO DO ERRO DE DIGITAÇÃO AQUI
+                    # ===============================================================
+                    marker_cluster = MarkerCluster().add_to(m)
                     for idx, row in gdf_visualizacao.iterrows():
                         popup_text = ""
                         for col in ['prioridade', 'centro_operativo', 'corte_recorte']:
