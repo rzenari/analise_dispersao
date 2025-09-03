@@ -7,3 +7,4 @@ scipy
 folium
 streamlit-folium
 h3
+requests
