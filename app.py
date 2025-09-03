@@ -240,6 +240,9 @@ if uploaded_file is not None:
                 if not gdf_visualizacao.empty:
                     map_center = [gdf_visualizacao.latitude.mean(), gdf_visualizacao.longitude.mean()]
                     m = folium.Map(location=map_center, zoom_start=11)
+                    # ===============================================================
+                    # CORREÇÃO DO ERRO DE DIGITAÇÃO AQUI
+                    # ===============================================================
                     marker_cluster = MarkerCluster().add_to(m)
                     for idx, row in gdf_visualizacao.iterrows():
                         popup_text = ""
@@ -264,8 +267,8 @@ if uploaded_file is not None:
                 st.dataframe(resumo_co, use_container_width=True)
             
             with tab3:
-                st.subheader("Contorno e Densidade dos Clusters")
-                st.write("Este mapa desenha o contorno de cada hotspot e o colore pela sua densidade (serviços por km²). Clusters vermelho-escuros são os mais 'quentes' e prioritários.")
+                st.subheader("Contorno Geográfico dos Clusters")
+                st.write("Este mapa desenha um polígono (contorno) ao redor de cada hotspot identificado, mostrando a área geográfica exata de cada agrupamento.")
                 gdf_clusters_reais = gdf_visualizacao[gdf_visualizacao['cluster'] != -1]
                 
                 if not gdf_clusters_reais.empty:
@@ -281,33 +284,21 @@ if uploaded_file is not None:
                         gdf_hulls = gdf_hulls.merge(counts, on='cluster')
                         gdf_hulls['densidade'] = (gdf_hulls['contagem'] / gdf_hulls['area_km2']).round(1)
                         
-                        # ===============================================================
-                        # LÓGICA ATUALIZADA PARA O MAPA COLORIDO (CHOROPLETH)
-                        # ===============================================================
-                        choropleth = folium.Choropleth(
-                            geo_data=gdf_hulls.to_json(),
-                            data=gdf_hulls,
-                            columns=['cluster', 'densidade'],
-                            key_on='feature.properties.cluster',
-                            fill_color='YlOrRd',
-                            fill_opacity=0.7,
-                            line_opacity=0.4,
-                            legend_name='Densidade de Serviços (serviços por km²)'
+                        folium.GeoJson(
+                            gdf_hulls,
+                            style_function=lambda x: {'color': 'red', 'weight': 2, 'fillColor': 'red', 'fillOpacity': 0.2},
+                            tooltip=folium.GeoJsonTooltip(
+                                fields=['cluster', 'contagem', 'area_km2', 'densidade'],
+                                aliases=['Cluster ID:', 'Nº de Serviços:', 'Área (km²):', 'Serviços por km²:'],
+                                localize=True,
+                                sticky=True
+                            )
                         ).add_to(m_hull)
                         
-                        # Adiciona o tooltip interativo à camada GeoJson do Choropleth
-                        folium.GeoJsonTooltip(
-                            fields=['cluster', 'contagem', 'area_km2', 'densidade'],
-                            aliases=['Cluster ID:', 'Nº de Serviços:', 'Área (km²):', 'Serviços por km²:'],
-                            localize=True,
-                            sticky=True,
-                            style="""
-                                background-color: #F0EFEF;
-                                border: 2px solid black;
-                                border-radius: 3px;
-                                box-shadow: 3px;
-                            """
-                        ).add_to(choropleth.geojson)
+                        marker_cluster_hull = MarkerCluster().add_to(m_hull)
+                        for idx, row in gdf_clusters_reais.iterrows():
+                            popup_text = f"Cluster: {row['cluster']}"
+                            folium.Marker(location=[row['latitude'], row['longitude']], popup=popup_text, icon=folium.Icon(color='blue', icon='info-sign')).add_to(marker_cluster_hull)
 
                         st_folium(m_hull, use_container_width=True, height=700, returned_objects=[])
                     except Exception as e:
@@ -345,7 +336,7 @@ if uploaded_file is not None:
                 
                 Ambos mostram os hotspots, mas de maneiras complementares:
                 - **Mapa Interativo de Hotspots (Aba 1):** Este mapa usa uma técnica de **agrupamento visual** (`MarkerCluster`). Ele é ideal para explorar **todos** os pontos da sua seleção (agrupados e dispersos) de forma limpa. Os círculos com números são criados dinamicamente com base no seu nível de zoom e na proximidade dos pontos na tela, facilitando a navegação em grandes volumes de dados.
-                - **Contorno dos Clusters (Aba 3):** Este mapa é a visualização direta do **resultado estatístico** do DBSCAN. Os polígonos coloridos mostram a fronteira geográfica exata dos grupos que o algoritmo identificou como hotspots. A cor representa a **densidade (serviços por km²)**, permitindo uma análise rápida das áreas mais críticas. É uma visão mais analítica, ideal para definir e visualizar as "zonas de trabalho" que precisam de atenção.
+                - **Contorno dos Clusters (Aba 3):** Este mapa é a visualização direta do **resultado estatístico** do DBSCAN. Os polígonos vermelhos mostram a fronteira geográfica exata dos grupos que o algoritmo identificou como hotspots. É uma visão mais analítica, ideal para definir e visualizar as "zonas de trabalho" que precisam de atenção.
                 """)
         else:
             st.warning("Nenhum dado para exibir com os filtros atuais.")
