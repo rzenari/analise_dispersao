@@ -162,7 +162,10 @@ if uploaded_file is not None:
         if not df_filtrado.empty:
             st.sidebar.markdown("### Parâmetros de Cluster")
             eps_cluster_km = st.sidebar.slider("Raio do Cluster (km)", 0.1, 5.0, 1.0, 0.1, help="Define o raio de busca para agrupar pontos no DBSCAN.")
-            min_samples_cluster = st.sidebar.slider("Mínimo de Pontos por Cluster", 2, 20, 5, 1, help="Número mínimo de pontos para formar um hotspot.")
+            # ===============================================================
+            # ALTERAÇÃO DO VALOR PADRÃO DO SLIDER
+            # ===============================================================
+            min_samples_cluster = st.sidebar.slider("Mínimo de Pontos por Cluster", 2, 20, 20, 1, help="Número mínimo de pontos para formar um hotspot.")
 
             gdf_base = gpd.GeoDataFrame(df_filtrado, geometry=gpd.points_from_xy(df_filtrado.longitude, df_filtrado.latitude), crs="EPSG:4326")
             gdf_com_clusters = executar_dbscan(gdf_base, eps_km=eps_cluster_km, min_samples=min_samples_cluster)
@@ -240,7 +243,7 @@ if uploaded_file is not None:
                 if not gdf_visualizacao.empty:
                     map_center = [gdf_visualizacao.latitude.mean(), gdf_visualizacao.longitude.mean()]
                     m = folium.Map(location=map_center, zoom_start=11)
-                    marker_cluster = MarkerCluster().add_to(m)
+                    marker_cluster = Marker_Cluster().add_to(m)
                     for idx, row in gdf_visualizacao.iterrows():
                         popup_text = ""
                         for col in ['prioridade', 'centro_operativo', 'corte_recorte']:
@@ -273,22 +276,14 @@ if uploaded_file is not None:
                     m_hull = folium.Map(location=map_center_hull, zoom_start=11)
                     
                     try:
-                        # Passo 1: Calcular contagem de pontos por cluster
                         counts = gdf_clusters_reais.groupby('cluster').size().rename('contagem')
-                        
-                        # Passo 2: Gerar os polígonos (convex hull) para cada cluster
                         hulls = gdf_clusters_reais.dissolve(by='cluster').convex_hull
                         gdf_hulls = gpd.GeoDataFrame(geometry=hulls).reset_index()
-
-                        # Passo 3: Calcular área em km²
                         gdf_hulls_proj = gdf_hulls.to_crs("EPSG:3857")
                         gdf_hulls['area_km2'] = (gdf_hulls_proj.geometry.area / 1_000_000).round(2)
-
-                        # Passo 4: Juntar contagem e calcular densidade
                         gdf_hulls = gdf_hulls.merge(counts, on='cluster')
                         gdf_hulls['densidade'] = (gdf_hulls['contagem'] / gdf_hulls['area_km2']).round(1)
                         
-                        # Adiciona os polígonos ao mapa
                         folium.GeoJson(
                             gdf_hulls,
                             style_function=lambda x: {'color': 'red', 'weight': 2, 'fillColor': 'red', 'fillOpacity': 0.2},
@@ -300,7 +295,6 @@ if uploaded_file is not None:
                             )
                         ).add_to(m_hull)
                         
-                        # Adiciona os pontos individuais usando MarkerCluster por cima
                         marker_cluster_hull = MarkerCluster().add_to(m_hull)
                         for idx, row in gdf_clusters_reais.iterrows():
                             popup_text = f"Cluster: {row['cluster']}"
