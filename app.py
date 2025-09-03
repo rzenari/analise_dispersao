@@ -11,7 +11,6 @@ from math import sqrt
 import folium
 from streamlit_folium import st_folium
 from folium.plugins import MarkerCluster
-import h3
 from shapely.geometry import Polygon
 
 # ==============================================================================
@@ -161,17 +160,13 @@ if uploaded_file is not None:
         st.header("Resultados da Análise")
         
         if not df_filtrado.empty:
-            st.sidebar.markdown("### Parâmetros de Análise")
+            st.sidebar.markdown("### Parâmetros de Cluster")
             eps_cluster_km = st.sidebar.slider("Raio do Cluster (km)", 0.1, 5.0, 1.0, 0.1, help="Define o raio de busca para agrupar pontos no DBSCAN.")
             min_samples_cluster = st.sidebar.slider("Mínimo de Pontos por Cluster", 2, 20, 5, 1, help="Número mínimo de pontos para formar um hotspot.")
-            hex_resolution = st.sidebar.slider("Resolução do Mapa Hexagonal", 5, 10, 8, 1, help="Define o tamanho dos hexágonos. Números maiores = hexágonos menores e mais detalhados.")
 
             gdf_base = gpd.GeoDataFrame(df_filtrado, geometry=gpd.points_from_xy(df_filtrado.longitude, df_filtrado.latitude), crs="EPSG:4326")
             gdf_com_clusters = executar_dbscan(gdf_base, eps_km=eps_cluster_km, min_samples=min_samples_cluster)
             
-            # ===============================================================
-            # NOVO FILTRO DE VISUALIZAÇÃO
-            # ===============================================================
             st.sidebar.markdown("### Filtro de Visualização do Mapa")
             tipo_visualizacao = st.sidebar.radio(
                 "Mostrar nos mapas:",
@@ -184,8 +179,20 @@ if uploaded_file is not None:
                 gdf_visualizacao = gdf_com_clusters[gdf_com_clusters['cluster'] != -1]
             elif tipo_visualizacao == "Apenas Dispersos":
                 gdf_visualizacao = gdf_com_clusters[gdf_com_clusters['cluster'] == -1]
+            
+            # Abaixo da análise, preparamos os dados para download
+            st.sidebar.markdown("### 📥 Downloads")
+            if 'numero_ordem' in gdf_com_clusters.columns:
+                df_agrupados_download = gdf_com_clusters[gdf_com_clusters['cluster'] != -1].drop(columns=['geometry'])
+                df_dispersos_download = gdf_com_clusters[gdf_com_clusters['cluster'] == -1].drop(columns=['geometry'])
+                csv_agrupados = df_agrupados_download.to_csv(index=False).encode('utf-8-sig')
+                csv_dispersos = df_dispersos_download.to_csv(index=False).encode('utf-8-sig')
+                st.sidebar.download_button(label="⬇️ Baixar Serviços Agrupados", data=csv_agrupados, file_name='servicos_agrupados.csv', mime='text/csv', disabled=df_agrupados_download.empty)
+                st.sidebar.download_button(label="⬇️ Baixar Serviços Dispersos", data=csv_dispersos, file_name='servicos_dispersos.csv', mime='text/csv', disabled=df_dispersos_download.empty)
+            else:
+                st.sidebar.warning("Coluna 'numero_ordem' não encontrada para gerar downloads.")
 
-            tab1, tab2, tab3, tab4 = st.tabs(["🗺️ Análise Geográfica e Mapa", "📊 Resumo por Centro Operativo", "🔥 Mapa Hexagonal de Densidade", "💡 Metodologia"])
+            tab1, tab2, tab3, tab4 = st.tabs(["🗺️ Análise Geográfica e Mapa", "📊 Resumo por Centro Operativo", "📍 Contorno dos Clusters", "💡 Metodologia"])
 
             with tab1:
                 col1, col2, col3 = st.columns(3)
@@ -215,7 +222,6 @@ if uploaded_file is not None:
                 total_pontos = len(gdf_com_clusters)
                 n_ruido = list(gdf_com_clusters['cluster']).count(-1)
                 percent_dispersos = (n_ruido / total_pontos * 100) if total_pontos > 0 else 0
-
                 with st.expander("🔍 O que estes números significam? Clique para ver a análise", expanded=True):
                      resumo_html = gerar_resumo_didatico(nni_valor_final, n_clusters_total, percent_dispersos, is_media=is_media_nni)
                      st.markdown(resumo_html, unsafe_allow_html=True)
@@ -234,8 +240,6 @@ if uploaded_file is not None:
                 
                 st.subheader(f"Mapa Interativo de Hotspots")
                 st.write("Dê zoom no mapa para expandir os agrupamentos e ver os pontos individuais.")
-                
-                # O mapa agora usa gdf_visualizacao
                 if not gdf_visualizacao.empty:
                     map_center = [gdf_visualizacao.latitude.mean(), gdf_visualizacao.longitude.mean()]
                     m = folium.Map(location=map_center, zoom_start=11)
@@ -263,38 +267,37 @@ if uploaded_file is not None:
                 st.dataframe(resumo_co, use_container_width=True)
             
             with tab3:
-                st.subheader("Mapa Hexagonal de Densidade")
-                st.write("Visualize a densidade de serviços em áreas geográficas fixas. A cor de cada hexágono representa o número de cortes em seu interior.")
+                st.subheader("Contorno Geográfico dos Clusters")
+                st.write("Este mapa desenha um polígono (contorno) ao redor de cada hotspot identificado, mostrando a área geográfica exata de cada agrupamento.")
+
+                # Filtra apenas os pontos que pertencem a um cluster
+                gdf_clusters_reais = gdf_visualizacao[gdf_visualizacao['cluster'] != -1]
                 
-                # O mapa hexagonal agora usa gdf_visualizacao
-                if not gdf_visualizacao.empty:
-                    limite_hexbin = 25000
-                    if len(gdf_visualizacao) <= limite_hexbin:
-                        gdf_visualizacao['hex_id'] = gdf_visualizacao.apply(lambda row: h3.latlng_to_cell(row['latitude'], row['longitude'], hex_resolution), axis=1)
-                        df_hex = gdf_visualizacao.groupby('hex_id').size().reset_index(name='contagem')
-                        def hex_to_polygon(hex_id):
-                            points = [(lon, lat) for lat, lon in h3.cell_to_boundary(hex_id)]
-                            return Polygon(points)
-                        df_hex['geometry'] = df_hex['hex_id'].apply(hex_to_polygon)
-                        gdf_hex = gpd.GeoDataFrame(df_hex, crs="EPSG:4326")
-                        map_center_hex = [gdf_visualizacao.latitude.mean(), gdf_visualizacao.longitude.mean()]
-                        m_hex = folium.Map(location=map_center_hex, zoom_start=11)
-                        
-                        choropleth = folium.Choropleth(
-                            geo_data=gdf_hex.to_json(), data=df_hex, columns=['hex_id', 'contagem'],
-                            key_on='feature.properties.hex_id', fill_color='YlOrRd', fill_opacity=0.7,
-                            line_opacity=0.2, legend_name='Contagem de Serviços por Hexágono'
-                        ).add_to(m_hex)
-                        
-                        # Adicionando o tooltip interativo
-                        folium.GeoJsonTooltip(['contagem'], aliases=['Serviços:']).add_to(choropleth.geojson)
-                        
-                        st_folium(m_hex, use_container_width=True, height=700, returned_objects=[])
-                    else:
-                        st.info(f"O mapa hexagonal está desabilitado para seleções com mais de {limite_hexbin:,.0f} pontos. Aplique mais filtros ou use o filtro de visualização.".replace(",", "."))
+                if not gdf_clusters_reais.empty:
+                    map_center_hull = [gdf_clusters_reais.latitude.mean(), gdf_clusters_reais.longitude.mean()]
+                    m_hull = folium.Map(location=map_center_hull, zoom_start=11)
+
+                    # Gera os polígonos (convex hull) para cada cluster
+                    hulls = gdf_clusters_reais.dissolve(by='cluster', aggfunc='first').convex_hull
+                    gdf_hulls = gpd.GeoDataFrame(geometry=hulls).reset_index()
+                    
+                    # Adiciona os polígonos ao mapa
+                    folium.GeoJson(
+                        gdf_hulls,
+                        style_function=lambda x: {'color': 'red', 'weight': 2, 'fillColor': 'red', 'fillOpacity': 0.2},
+                        tooltip=folium.GeoJsonTooltip(fields=['cluster'], aliases=['Cluster ID:'])
+                    ).add_to(m_hull)
+                    
+                    # Adiciona os pontos individuais usando MarkerCluster por cima
+                    marker_cluster_hull = MarkerCluster().add_to(m_hull)
+                    for idx, row in gdf_clusters_reais.iterrows():
+                        popup_text = f"Cluster: {row['cluster']}"
+                        folium.Marker(location=[row['latitude'], row['longitude']], popup=popup_text).add_to(marker_cluster_hull)
+
+                    st_folium(m_hull, use_container_width=True, height=700, returned_objects=[])
                 else:
-                    st.warning("Nenhum serviço para exibir no mapa com o filtro de visualização atual.")
-            
+                    st.warning("Nenhum cluster para desenhar com os filtros atuais.")
+
             with tab4:
                 st.subheader("As Metodologias por Trás da Análise")
                 st.markdown("""
