@@ -276,7 +276,6 @@ if uploaded_file is not None:
                     resumo_co['% agrupados'] = (resumo_co['nº agrupados'] / resumo_co['total de serviços'] * 100).round(1)
                     resumo_co['% dispersos'] = (resumo_co['nº dispersos'] / resumo_co['total de serviços'] * 100).round(1)
                     if df_metas is not None:
-                        # CORREÇÃO: Padroniza a chave em ambos os dataframes antes do merge
                         resumo_co['centro_operativo_join_key'] = resumo_co['centro_operativo'].str.strip().str.upper()
                         df_metas['centro_operativo_join_key'] = df_metas['centro_operativo'].str.strip().str.upper()
                         
@@ -337,9 +336,23 @@ if uploaded_file is not None:
                                     hulls_pacotes = gdf_alocados_final.dissolve(by=['centro_operativo', 'pacote_id']).convex_hull
                                     gdf_hulls_pacotes = gpd.GeoDataFrame(geometry=hulls_pacotes).reset_index()
                                     
-                                    # ######################################
-                                    # ## INÍCIO DA CORREÇÃO DO NAMEERROR  ##
-                                    # ######################################
+                                    # #################################################
+                                    # ## INÍCIO DAS ALTERAÇÕES SOLICITADAS           ##
+                                    # #################################################
+                                    
+                                    # 1. CALCULAR CONTAGEM DE SERVIÇOS POR PACOTE
+                                    counts_pacotes = gdf_alocados_final.groupby(['centro_operativo', 'pacote_id']).size().rename('contagem')
+                                    gdf_hulls_pacotes = gdf_hulls_pacotes.merge(counts_pacotes, on=['centro_operativo', 'pacote_id'])
+                                    
+                                    # 2. CALCULAR ÁREA E DENSIDADE
+                                    gdf_hulls_pacotes_proj = gdf_hulls_pacotes.to_crs("EPSG:3857")
+                                    gdf_hulls_pacotes['area_km2'] = (gdf_hulls_pacotes_proj.geometry.area / 1_000_000).round(2)
+                                    # Para evitar divisão por zero em áreas muito pequenas:
+                                    gdf_hulls_pacotes['densidade'] = 0.0
+                                    non_zero_area = gdf_hulls_pacotes['area_km2'] > 0
+                                    gdf_hulls_pacotes.loc[non_zero_area, 'densidade'] = (gdf_hulls_pacotes.loc[non_zero_area, 'contagem'] / gdf_hulls_pacotes.loc[non_zero_area, 'area_km2']).round(1)
+
+                                    # 3. ATUALIZAR TOOLTIP E PLOTAR NO MAPA
                                     folium.GeoJson(
                                         gdf_hulls_pacotes,
                                         style_function=lambda feature: {
@@ -349,18 +362,21 @@ if uploaded_file is not None:
                                             'fillOpacity': 0.25
                                         },
                                         tooltip=folium.GeoJsonTooltip(
-                                            fields=['centro_operativo', 'pacote_id'],
-                                            aliases=['CO:', 'Pacote:'],
+                                            fields=['centro_operativo', 'pacote_id', 'contagem', 'area_km2', 'densidade'],
+                                            aliases=['CO:', 'Pacote:', 'Nº de Serviços:', 'Área (km²):', 'Serviços por km²:'],
                                             localize=True,
                                             sticky=True
                                         )
                                     ).add_to(m_pacotes)
-                                    # ####################################
-                                    # ## FIM DA CORREÇÃO DO NAMEERROR   ##
-                                    # ####################################
                                     
-                                for _, row in gdf_excedentes_final.iterrows():
-                                    folium.Marker(location=[row['latitude'], row['longitude']], tooltip="Serviço Excedente", icon=folium.Icon(color='red', icon='times-circle', prefix='fa')).add_to(m_pacotes)
+                                    # #################################################
+                                    # ## FIM DAS ALTERAÇÕES SOLICITADAS              ##
+                                    # #################################################
+
+                                # COMENTADO PARA NÃO PLOTAR OS PONTOS EXCEDENTES E MELHORAR A PERFORMANCE
+                                # for _, row in gdf_excedentes_final.iterrows():
+                                #     folium.Marker(location=[row['latitude'], row['longitude']], tooltip="Serviço Excedente", icon=folium.Icon(color='red', icon='times-circle', prefix='fa')).add_to(m_pacotes)
+                                
                                 st_folium(m_pacotes, use_container_width=True, height=700)
                             else:
                                 st.info("Nenhum pacote de trabalho para simular.")
