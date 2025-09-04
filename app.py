@@ -12,6 +12,7 @@ import folium
 from streamlit_folium import st_folium
 from folium.plugins import MarkerCluster
 from shapely.geometry import Polygon
+import io  # Necessário para o download em Excel
 
 # ==============================================================================
 # 2. CONFIGURAÇÃO DA PÁGINA E TÍTULOS
@@ -247,17 +248,32 @@ if uploaded_file is not None:
             
             st.sidebar.markdown("### Filtro de Visualização do Mapa")
             tipo_visualizacao = st.sidebar.radio("Mostrar nos mapas:", ("Todos os Serviços", "Apenas Agrupados", "Apenas Dispersos"), help="Isto afeta apenas os pontos mostrados nos mapas, não as métricas.")
+            
+            # #################################################
+            # ## INÍCIO DAS ALTERAÇÕES SOLICITADAS (DOWNLOADS) ##
+            # #################################################
+            st.sidebar.markdown("### 📥 Downloads")
+            
+            # Downloads de Agrupados e Dispersos (CSV)
+            if 'numero_ordem' in gdf_com_clusters.columns:
+                df_agrupados_download = gdf_com_clusters[gdf_com_clusters['cluster'] != -1].drop(columns=['geometry'])
+                csv_agrupados = df_agrupados_download.to_csv(index=False).encode('utf-8-sig')
+                st.sidebar.download_button(label="⬇️ Baixar Serviços Agrupados (CSV)", data=csv_agrupados, file_name='servicos_agrupados.csv', mime='text/csv', disabled=df_agrupados_download.empty)
+                
+                df_dispersos_download = gdf_com_clusters[gdf_com_clusters['cluster'] == -1].drop(columns=['geometry'])
+                csv_dispersos = df_dispersos_download.to_csv(index=False).encode('utf-8-sig')
+                st.sidebar.download_button(label="⬇️ Baixar Serviços Dispersos (CSV)", data=csv_dispersos, file_name='servicos_dispersos.csv', mime='text/csv', disabled=df_dispersos_download.empty)
+            
+            # O botão de download de pacotes será adicionado dinamicamente mais abaixo se os pacotes forem criados
+            
+            # ###############################################
+            # ## FIM DAS ALTERAÇÕES SOLICITADAS (DOWNLOADS) ##
+            # ###############################################
+
             gdf_visualizacao = gdf_com_clusters.copy()
             if tipo_visualizacao == "Apenas Agrupados": gdf_visualizacao = gdf_com_clusters[gdf_com_clusters['cluster'] != -1]
             elif tipo_visualizacao == "Apenas Dispersos": gdf_visualizacao = gdf_com_clusters[gdf_com_clusters['cluster'] == -1]
             
-            if 'numero_ordem' in gdf_com_clusters.columns:
-                st.sidebar.markdown("### 📥 Downloads")
-                df_agrupados_download = gdf_com_clusters[gdf_com_clusters['cluster'] != -1].drop(columns=['geometry']); df_dispersos_download = gdf_com_clusters[gdf_com_clusters['cluster'] == -1].drop(columns=['geometry'])
-                csv_agrupados = df_agrupados_download.to_csv(index=False).encode('utf-8-sig'); csv_dispersos = df_dispersos_download.to_csv(index=False).encode('utf-8-sig')
-                st.sidebar.download_button(label="⬇️ Baixar Serviços Agrupados", data=csv_agrupados, file_name='servicos_agrupados.csv', mime='text/csv', disabled=df_agrupados_download.empty)
-                st.sidebar.download_button(label="⬇️ Baixar Serviços Dispersos", data=csv_dispersos, file_name='servicos_dispersos.csv', mime='text/csv', disabled=df_dispersos_download.empty)
-
             lista_abas = ["🗺️ Análise Geográfica", "📊 Resumo por CO", "📍 Contorno dos Clusters"]
             if df_metas is not None: lista_abas.append("📦 Pacotes de Trabalho")
             lista_abas.append("💡 Metodologia")
@@ -369,6 +385,20 @@ if uploaded_file is not None:
                         gdf_alocados_final = pd.concat(todos_alocados) if todos_alocados else gpd.GeoDataFrame()
                         gdf_excedentes_final = pd.concat(todos_excedentes) if todos_excedentes else gpd.GeoDataFrame()
                         
+                        # Adiciona o botão de download dos pacotes na sidebar
+                        if not gdf_alocados_final.empty:
+                            df_pacotes_download = gdf_alocados_final.drop(columns=['geometry'])
+                            output = io.BytesIO()
+                            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                                df_pacotes_download.to_excel(writer, index=False, sheet_name='Pacotes_Alocados')
+                            excel_data = output.getvalue()
+                            st.sidebar.download_button(
+                                label="⬇️ Baixar Pacotes de Trabalho (Excel)",
+                                data=excel_data,
+                                file_name='pacotes_de_trabalho.xlsx',
+                                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                            )
+
                         st.markdown("##### Performance da Carteira Agrupada")
                         c1, c2, c3 = st.columns(3)
                         total_servicos_analisados = len(gdf_alocados_final) + len(gdf_excedentes_final)
@@ -390,10 +420,7 @@ if uploaded_file is not None:
                                 
                                 gdf_hulls_pacotes_proj = gdf_hulls_pacotes.to_crs("EPSG:3857")
                                 gdf_hulls_pacotes['area_km2'] = (gdf_hulls_pacotes_proj.geometry.area / 1_000_000).round(2)
-                                gdf_hulls_pacotes['densidade'] = 0.0
-                                non_zero_area = gdf_hulls_pacotes['area_km2'] > 0
-                                gdf_hulls_pacotes.loc[non_zero_area, 'densidade'] = (gdf_hulls_pacotes.loc[non_zero_area, 'contagem'] / gdf_hulls_pacotes.loc[non_zero_area, 'area_km2']).round(1)
-
+                                
                                 folium.GeoJson(
                                     gdf_hulls_pacotes,
                                     style_function=lambda feature: {
@@ -403,8 +430,8 @@ if uploaded_file is not None:
                                         'fillOpacity': 0.25
                                     },
                                     tooltip=folium.GeoJsonTooltip(
-                                        fields=['centro_operativo', 'pacote_id', 'contagem', 'area_km2', 'densidade'],
-                                        aliases=['CO:', 'Pacote:', 'Nº de Serviços:', 'Área (km²):', 'Serviços por km²:'],
+                                        fields=['centro_operativo', 'pacote_id', 'contagem', 'area_km2'],
+                                        aliases=['CO:', 'Pacote:', 'Nº de Serviços:', 'Área (km²):'],
                                         localize=True,
                                         sticky=True
                                     )
@@ -426,7 +453,7 @@ if uploaded_file is not None:
                 st.markdown("""
                 - **Por que alguns serviços ficam como "dispersos"?** Um serviço é considerado disperso (ou ruído) pelo DBSCAN se ele não tiver um número mínimo de vizinhos (`Mínimo de Pontos por Cluster`) dentro de um raio de busca (`Raio do Cluster`). Isso indica que ele está geograficamente isolado dos demais.
                 - **Como escolher os melhores parâmetros de cluster?** Não há um número mágico. Comece com os padrões (Raio: 1km, Mínimo de Pontos: 20). Se você perceber que muitos serviços que parecem próximos estão como "dispersos", tente aumentar o `Raio do Cluster`. Se clusters muito grandes estão sendo formados, tente diminuir o raio ou aumentar o `Mínimo de Pontos`.
-                - **O que significa um pacote excedente na simulação?** Significa que, após atribuir os pacotes mais densos e eficientes para todas as equipes disponíveis, ainda sobraram serviços. Eles podem ser serviços de hotspots de baixa prioridade (baixa densidade) ou serviços já classificados como dispersos.
+                - **O que significa um pacote excedente na simulação?** Significa que, após atribuir os pacotes mais densos e eficientes para todas as equipes disponíveis, ainda sobraram serviços. Eles podem ser serviços de hotspots de baixa prioridade (baixa densidade) que não entraram no ranking ou serviços já classificados como dispersos.
                 """)
         else:
             st.warning("Nenhum dado para exibir com os filtros atuais.")
