@@ -22,10 +22,10 @@ st.title("🗺️ Ferramenta de Análise de Dispersão Geográfica")
 st.write("Faça o upload da sua planilha de cortes para analisar a distribuição geográfica e identificar clusters")
 
 # ==============================================================================
-# 3. FUNÇÕES DE ANÁLISE (COM CACHE PARA PERFORMANCE)
+# 3. FUNÇÕES DE ANÁLISE (CACHE REMOVIDO PARA GARANTIR REATIVIDADE)
 # ==============================================================================
 
-@st.cache_data
+# @st.cache_data # Cache removido
 def carregar_dados_completos(arquivo_enviado):
     """Lê o arquivo completo com todas as colunas, que será a fonte única de dados."""
     arquivo_enviado.seek(0)
@@ -56,7 +56,7 @@ def carregar_dados_completos(arquivo_enviado):
             except Exception as e:
                 st.error(f"Não foi possível ler o arquivo de cortes. Último erro: {e}"); return None
 
-@st.cache_data
+# @st.cache_data # Cache removido
 def carregar_dados_metas(arquivo_metas):
     """Lê o arquivo opcional de metas e equipes."""
     if arquivo_metas is None:
@@ -73,6 +73,7 @@ def carregar_dados_metas(arquivo_metas):
     except Exception as e:
         st.error(f"Não foi possível ler a planilha de metas. Erro: {e}")
         return None
+
 
 def calcular_nni_otimizado(gdf):
     """Calcula NNI de forma otimizada para memória."""
@@ -106,6 +107,60 @@ def executar_dbscan(gdf, eps_km=0.5, min_samples=3):
     gdf_copy['cluster'] = db.labels_
     return gdf_copy
 
+def simular_pacotes_de_trabalho(gdf_cluster, n_equipes, capacidade):
+    """Simula a criação de pacotes de trabalho usando K-Means e realocação para respeitar a capacidade."""
+    if gdf_cluster.empty or n_equipes == 0:
+        return gdf_cluster.copy(), gpd.GeoDataFrame()
+
+    kmeans = KMeans(n_clusters=n_equipes, random_state=42, n_init='auto')
+    coords = gdf_cluster[['longitude', 'latitude']].values
+    gdf_cluster['pacote_id'] = kmeans.fit_predict(coords)
+    
+    pacotes_sobrecarregados = []
+    indices_excedentes = []
+
+    for i in range(n_equipes):
+        pacote_atual = gdf_cluster[gdf_cluster['pacote_id'] == i]
+        if len(pacote_atual) > capacidade:
+            pacotes_sobrecarregados.append(i)
+            centro = kmeans.cluster_centers_[i]
+            distancias = np.linalg.norm(pacote_atual[['longitude', 'latitude']].values - centro, axis=1)
+            pacote_atual_sorted = pacote_atual.iloc[distancias.argsort()]
+            indices_excedentes.extend(pacote_atual_sorted.index[capacidade:])
+
+    if indices_excedentes:
+        gdf_excedentes = gdf_cluster.loc[indices_excedentes].copy()
+        gdf_cluster.loc[indices_excedentes, 'pacote_id'] = -1
+        
+        if not gdf_excedentes.empty:
+            tree_excedentes = cKDTree(gdf_excedentes[['longitude', 'latitude']].values)
+
+            for i in range(n_equipes):
+                if i not in pacotes_sobrecarregados:
+                    pacote_atual = gdf_cluster[gdf_cluster['pacote_id'] == i]
+                    capacidade_restante = capacidade - len(pacote_atual)
+                    
+                    if capacidade_restante > 0 and not gdf_excedentes.empty:
+                        centro_pacote = kmeans.cluster_centers_[i]
+                        dist, idx = tree_excedentes.query([centro_pacote], k=min(capacidade_restante, len(gdf_excedentes)))
+                        
+                        # idx pode ser um único valor ou um array, normalizamos para array
+                        if not isinstance(idx, np.ndarray): idx = np.array([idx])
+                        
+                        indices_para_alocar = gdf_excedentes.index[idx.flatten()]
+                        
+                        gdf_cluster.loc[indices_para_alocar, 'pacote_id'] = i
+                        gdf_excedentes = gdf_excedentes.drop(indices_para_alocar)
+
+                        if not gdf_excedentes.empty:
+                            tree_excedentes = cKDTree(gdf_excedentes[['longitude', 'latitude']].values)
+    
+    gdf_alocados = gdf_cluster[gdf_cluster['pacote_id'] != -1].copy()
+    gdf_excedentes_final = gdf_cluster[gdf_cluster['pacote_id'] == -1].copy()
+    
+    return gdf_alocados, gdf_excedentes_final
+
+
 def gerar_resumo_didatico(nni_valor, n_clusters, percent_dispersos, is_media=False):
     """Gera um texto interpretativo com base nos resultados da análise."""
     if nni_valor is None: return ""
@@ -118,8 +173,8 @@ def gerar_resumo_didatico(nni_valor, n_clusters, percent_dispersos, is_media=Fal
         titulo = "📊 **Padrão Moderadamente Agrupado (Potencial de Otimização)**"; obs = f"{prefixo} dos cortes apresenta **boa concentração**."; acao = f"**Ação Recomendada:** Identifique os **{n_clusters} hotspots** mais densos para priorizar o roteamento."
     elif 0.8 <= nni_valor <= 1.2:
         titulo = "😐 **Padrão Aleatório (Sem Padrão Claro)**"; obs = f"{prefixo} dos cortes é **aleatório**."; acao = f"**Ação Recomendada:** A logística tende a ser menos previsível. Considere uma abordagem de roteirização diária e dinâmica."
-    else: # nni_valor > 1.2
-        titulo = "📉 **Padrão Disperso (Desafio Logístico)**"; obs = f"{prefixo} dos cortes está **muito espalhado**."; acao = f"**Ação Recomendada:** Planeje as rotas com antecedência para minimizar custos de deslocamento."
+    else: 
+        titulo = "📉 **Padrão Disperso (Desafio Logístico)**"; obs = f"{prefixo} dos cortes está **muito espalhado**."; acao = f"**Ação Recomendada:** Planeje rotas com antecedência para minimizar custos de deslocamento."
     return f"""<div style="background-color:#f0f2f6; padding: 15px; border-radius: 10px;"><h4 style="color:#31333f;">{titulo}</h4><ul style="color:#31333f;"><li><b>Observação:</b> {obs}</li><li><b>Ação Recomendada:</b> {acao}</li></ul></div>"""
 
 def calcular_qualidade_carteira(row):
@@ -131,66 +186,7 @@ def calcular_qualidade_carteira(row):
     else: return "❌ Crítica"
 
 # ==============================================================================
-# NOVA FUNÇÃO PARA A SIMULAÇÃO DE PACOTES DE TRABALHO
-# ==============================================================================
-def simular_pacotes_de_trabalho(gdf_cluster, n_equipes, capacidade):
-    """Simula a criação de pacotes de trabalho usando K-Means e realocação para respeitar a capacidade."""
-    if gdf_cluster.empty or n_equipes == 0:
-        return gdf_cluster.copy(), gpd.GeoDataFrame()
-
-    # 1. Divisão Geográfica Inicial com K-Means
-    kmeans = KMeans(n_clusters=n_equipes, random_state=42, n_init='auto')
-    coords = gdf_cluster[['longitude', 'latitude']].values
-    gdf_cluster['pacote_id'] = kmeans.fit_predict(coords)
-    
-    # 2. Identificar pacotes sobrecarregados e pontos excedentes
-    pacotes_sobrecarregados = []
-    indices_excedentes = []
-
-    for i in range(n_equipes):
-        pacote_atual = gdf_cluster[gdf_cluster['pacote_id'] == i]
-        if len(pacote_atual) > capacidade:
-            pacotes_sobrecarregados.append(i)
-            # Calcula a distância de cada ponto ao centro do seu pacote
-            centro = kmeans.cluster_centers_[i]
-            distancias = np.linalg.norm(pacote_atual[['longitude', 'latitude']].values - centro, axis=1)
-            # Ordena os pontos pela distância e pega os mais distantes como excedentes
-            pacote_atual_sorted = pacote_atual.iloc[distancias.argsort()]
-            indices_excedentes.extend(pacote_atual_sorted.index[capacidade:])
-
-    # 3. Realocação Inteligente
-    if indices_excedentes:
-        gdf_excedentes = gdf_cluster.loc[indices_excedentes].copy()
-        gdf_cluster.loc[indices_excedentes, 'pacote_id'] = -1 # Marcar como não alocados temporariamente
-        
-        tree_excedentes = cKDTree(gdf_excedentes[['longitude', 'latitude']].values)
-
-        for i in range(n_equipes):
-            if i not in pacotes_sobrecarregados:
-                pacote_atual = gdf_cluster[gdf_cluster['pacote_id'] == i]
-                capacidade_restante = capacidade - len(pacote_atual)
-                
-                if capacidade_restante > 0 and not gdf_excedentes.empty:
-                    # Encontra os excedentes mais próximos deste pacote
-                    centro_pacote = kmeans.cluster_centers_[i]
-                    dist, idx = tree_excedentes.query([centro_pacote], k=min(capacidade_restante, len(gdf_excedentes)))
-                    
-                    indices_para_alocar = gdf_excedentes.index[idx[0]]
-                    
-                    # Aloca os pontos e os remove da lista de excedentes
-                    gdf_cluster.loc[indices_para_alocar, 'pacote_id'] = i
-                    gdf_excedentes = gdf_excedentes.drop(indices_para_alocar)
-                    if not gdf_excedentes.empty:
-                        tree_excedentes = cKDTree(gdf_excedentes[['longitude', 'latitude']].values)
-    
-    # 4. Identificar os excedentes finais e retornar
-    gdf_alocados = gdf_cluster[gdf_cluster['pacote_id'] != -1].copy()
-    gdf_excedentes_final = gdf_cluster[gdf_cluster['pacote_id'] == -1].copy()
-    
-    return gdf_alocados, gdf_excedentes_final
-
-# ==============================================================================
-# 5. LÓGICA PRINCIPAL DA APLICAÇÃO
+# 4. LÓGICA PRINCIPAL DA APLICAÇÃO
 # ==============================================================================
 st.sidebar.header("Controles")
 uploaded_file = st.sidebar.file_uploader("1. Escolha a planilha de cortes", type=["csv", "xlsx", "xls"])
@@ -201,8 +197,9 @@ if uploaded_file is not None:
     df_metas = carregar_dados_metas(metas_file)
     
     if df_completo is not None:
-        st.sidebar.success(f"{len(df_completo)} registros carregados!")
-        if df_metas is not None: st.sidebar.info(f"Planilha de metas carregada para {len(df_metas)} COs.")
+        if not st.sidebar.button('Recarregar Dados'):
+            st.sidebar.success(f"{len(df_completo)} registros carregados!")
+            if df_metas is not None: st.sidebar.info(f"Metas carregadas para {len(df_metas)} COs.")
 
         st.sidebar.markdown("### Filtros da Análise")
         filtros = ['sucursal', 'centro_operativo', 'corte_recorte', 'prioridade']
@@ -233,6 +230,7 @@ if uploaded_file is not None:
             
             st.sidebar.markdown("### Filtro de Visualização do Mapa")
             tipo_visualizacao = st.sidebar.radio("Mostrar nos mapas:", ("Todos os Serviços", "Apenas Agrupados", "Apenas Dispersos"), help="Isto afeta apenas os pontos mostrados nos mapas, não as métricas.")
+            
             gdf_visualizacao = gdf_com_clusters.copy()
             if tipo_visualizacao == "Apenas Agrupados": gdf_visualizacao = gdf_com_clusters[gdf_com_clusters['cluster'] != -1]
             elif tipo_visualizacao == "Apenas Dispersos": gdf_visualizacao = gdf_com_clusters[gdf_com_clusters['cluster'] == -1]
@@ -250,7 +248,6 @@ if uploaded_file is not None:
             tabs = st.tabs(lista_abas)
 
             with tabs[0]: # Análise Geográfica
-                # (código da tab1 permanece o mesmo)
                 col1, col2, col3 = st.columns(3); col1.metric("Total de Cortes Carregados", len(df_completo)); col2.metric("Cortes na Seleção Atual", len(df_filtrado))
                 nni_valor_final, nni_texto = calcular_nni_otimizado(gdf_com_clusters)
                 help_nni = "O Índice do Vizinho Mais Próximo (NNI) mede se o padrão dos pontos é agrupado, disperso ou aleatório. NNI < 1: Agrupado. NNI ≈ 1: Aleatório. NNI > 1: Disperso."
@@ -283,9 +280,8 @@ if uploaded_file is not None:
                 resumo_co['% agrupados'] = (resumo_co['nº agrupados'] / resumo_co['total de serviços'] * 100).round(1)
                 resumo_co['% dispersos'] = (resumo_co['nº dispersos'] / resumo_co['total de serviços'] * 100).round(1)
                 if df_metas is not None:
-                    # Renomeando colunas para o merge
-                    df_metas.columns = [col.replace(' ', '_') for col in df_metas.columns]
-                    resumo_co = pd.merge(resumo_co, df_metas, on='centro_operativo', how='left')
+                    df_metas_renamed = df_metas.rename(columns=lambda x: x.replace(' ', '_'))
+                    resumo_co = pd.merge(resumo_co, df_metas_renamed, on='centro_operativo', how='left')
                     resumo_co['qualidade da carteira'] = resumo_co.apply(calcular_qualidade_carteira, axis=1)
                 st.dataframe(resumo_co, use_container_width=True)
 
@@ -313,53 +309,42 @@ if uploaded_file is not None:
                 with tabs[3]: # Pacotes de Trabalho
                     st.subheader("Simulação de Roteirização Diária"); st.write("Este mapa simula a alocação dos serviços agrupados entre as equipes de um CO, respeitando a capacidade de produção de cada uma.")
                     gdf_clusters_reais = gdf_com_clusters[gdf_com_clusters['cluster'] != -1]
-                    
                     if not gdf_clusters_reais.empty:
-                        # Processa todos os COs e concatena os resultados
                         todos_alocados = []; todos_excedentes = []
                         for co in gdf_clusters_reais['centro_operativo'].unique():
-                            gdf_co = gdf_clusters_reais[gdf_clusters_reais['centro_operativo'] == co]
+                            gdf_co = gdf_clusters_reais[gdf_clusters_reais['centro_operativo'] == co].copy()
                             metas_co = df_metas[df_metas['centro_operativo'] == co]
                             if not metas_co.empty:
                                 n_equipes = int(metas_co['equipes'].iloc[0]); capacidade = int(metas_co['produção'].iloc[0])
                                 if n_equipes > 0 and capacidade > 0 and len(gdf_co) > 0:
                                     alocados, excedentes = simular_pacotes_de_trabalho(gdf_co, n_equipes, capacidade)
                                     todos_alocados.append(alocados); todos_excedentes.append(excedentes)
-
                         if todos_alocados:
-                            gdf_alocados_final = pd.concat(todos_alocados)
-                            gdf_excedentes_final = pd.concat(todos_excedentes)
-
-                            # Métricas da Simulação
+                            gdf_alocados_final = pd.concat(todos_alocados) if todos_alocados else gpd.GeoDataFrame()
+                            gdf_excedentes_final = pd.concat(todos_excedentes) if todos_excedentes else gpd.GeoDataFrame()
                             st.markdown("##### Performance da Carteira Agrupada")
                             c1, c2, c3 = st.columns(3)
                             c1.metric("Serviços Agrupados", len(gdf_clusters_reais))
                             c2.metric("Serviços Alocados", len(gdf_alocados_final))
                             c3.metric("Serviços Excedentes", len(gdf_excedentes_final), delta=f"-{len(gdf_excedentes_final)} não roteirizados", delta_color="inverse")
-
-                            # Mapa
-                            map_center_pacotes = [gdf_alocados_final.latitude.mean(), gdf_alocados_final.longitude.mean()]
+                            map_center_pacotes = [gdf_clusters_reais.latitude.mean(), gdf_clusters_reais.longitude.mean()]
                             m_pacotes = folium.Map(location=map_center_pacotes, zoom_start=10)
                             cores_co = {co: color for co, color in zip(gdf_com_clusters['centro_operativo'].unique(), ['blue', 'green', 'purple', 'orange', 'darkred', 'red', 'lightred', 'beige', 'darkblue', 'darkgreen', 'cadetblue', 'lightgreen', 'pink', 'lightblue', 'lightgray', 'black'])}
-                            
-                            # Desenha contornos dos pacotes alocados
-                            hulls_pacotes = gdf_alocados_final.dissolve(by=['centro_operativo', 'pacote_id']).convex_hull
-                            gdf_hulls_pacotes = gpd.GeoDataFrame(geometry=hulls_pacotes).reset_index()
-                            folium.GeoJson(gdf_hulls_pacotes, style_function=lambda feature: {'color': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'weight': 2.5, 'fillColor': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'fillOpacity': 0.25}, tooltip=f"CO: {feature['properties']['centro_operativo']}, Pacote: {feature['properties']['pacote_id']}").add_to(m_pacotes)
-
-                            # Adiciona marcadores de serviços excedentes
+                            if not gdf_alocados_final.empty:
+                                hulls_pacotes = gdf_alocados_final.dissolve(by=['centro_operativo', 'pacote_id']).convex_hull
+                                gdf_hulls_pacotes = gpd.GeoDataFrame(geometry=hulls_pacotes).reset_index()
+                                folium.GeoJson(gdf_hulls_pacotes, style_function=lambda feature: {'color': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'weight': 2.5, 'fillColor': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'fillOpacity': 0.25}, tooltip=f"CO: {feature['properties']['centro_operativo']}, Pacote: {feature['properties']['pacote_id']}").add_to(m_pacotes)
                             for _, row in gdf_excedentes_final.iterrows():
                                 folium.Marker(location=[row['latitude'], row['longitude']], tooltip="Serviço Excedente", icon=folium.Icon(color='red', icon='times-circle', prefix='fa')).add_to(m_pacotes)
-                            
                             st_folium(m_pacotes, use_container_width=True, height=700)
-                        else: st.info("Nenhum pacote de trabalho para simular com os dados e metas atuais.")
+                        else: st.info("Nenhum pacote de trabalho para simular.")
                     else: st.warning("Nenhum cluster encontrado para dividir em pacotes.")
             
             with tabs[-1]: # Metodologia
                 st.subheader("As Metodologias por Trás da Análise")
-                st.markdown("""... [texto completo da metodologia] ...""")
+                st.markdown("""[Texto completo da metodologia]""")
                 st.subheader("Perguntas Frequentes (FAQ)")
-                st.markdown("""... [texto completo do FAQ] ...""")
+                st.markdown("""[Texto completo do FAQ]""")
         else:
             st.warning("Nenhum dado para exibir com os filtros atuais.")
 else:
