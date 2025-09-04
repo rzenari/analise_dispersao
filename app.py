@@ -22,10 +22,9 @@ st.title("🗺️ Ferramenta de Análise de Dispersão Geográfica")
 st.write("Faça o upload da sua planilha de cortes para analisar a distribuição geográfica e identificar clusters")
 
 # ==============================================================================
-# 3. FUNÇÕES DE ANÁLISE (COM CACHE PARA PERFORMANCE)
+# 3. FUNÇÕES DE ANÁLISE
 # ==============================================================================
 
-@st.cache_data
 def carregar_dados_completos(arquivo_enviado):
     """Lê o arquivo completo com todas as colunas, que será a fonte única de dados."""
     arquivo_enviado.seek(0)
@@ -56,7 +55,6 @@ def carregar_dados_completos(arquivo_enviado):
             except Exception as e:
                 st.error(f"Não foi possível ler o arquivo de cortes. Último erro: {e}"); return None
 
-@st.cache_data
 def carregar_dados_metas(arquivo_metas):
     """Lê o arquivo opcional de metas e equipes."""
     if arquivo_metas is None:
@@ -115,9 +113,7 @@ def simular_pacotes_de_trabalho(gdf_cluster, n_equipes, capacidade):
     coords = gdf_cluster[['longitude', 'latitude']].values
     gdf_cluster['pacote_id'] = kmeans.fit_predict(coords)
     
-    pacotes_sobrecarregados = []
-    indices_excedentes = []
-
+    pacotes_sobrecarregados = []; indices_excedentes = []
     for i in range(n_equipes):
         pacote_atual = gdf_cluster[gdf_cluster['pacote_id'] == i]
         if len(pacote_atual) > capacidade:
@@ -133,31 +129,22 @@ def simular_pacotes_de_trabalho(gdf_cluster, n_equipes, capacidade):
         
         if not gdf_excedentes.empty:
             tree_excedentes = cKDTree(gdf_excedentes[['longitude', 'latitude']].values)
-
             for i in range(n_equipes):
                 if i not in pacotes_sobrecarregados:
                     pacote_atual = gdf_cluster[gdf_cluster['pacote_id'] == i]
                     capacidade_restante = capacidade - len(pacote_atual)
-                    
                     if capacidade_restante > 0 and not gdf_excedentes.empty:
                         centro_pacote = kmeans.cluster_centers_[i]
                         dist, idx = tree_excedentes.query([centro_pacote], k=min(capacidade_restante, len(gdf_excedentes)))
-                        
                         if not isinstance(idx, np.ndarray): idx = np.array([idx])
-                        
                         indices_para_alocar = gdf_excedentes.index[idx.flatten()]
-                        
                         gdf_cluster.loc[indices_para_alocar, 'pacote_id'] = i
                         gdf_excedentes = gdf_excedentes.drop(indices_para_alocar)
-
-                        if not gdf_excedentes.empty:
-                            tree_excedentes = cKDTree(gdf_excedentes[['longitude', 'latitude']].values)
+                        if not gdf_excedentes.empty: tree_excedentes = cKDTree(gdf_excedentes[['longitude', 'latitude']].values)
     
     gdf_alocados = gdf_cluster[gdf_cluster['pacote_id'] != -1].copy()
     gdf_excedentes_final = gdf_cluster[gdf_cluster['pacote_id'] == -1].copy()
-    
     return gdf_alocados, gdf_excedentes_final
-
 
 def gerar_resumo_didatico(nni_valor, n_clusters, percent_dispersos, is_media=False):
     """Gera um texto interpretativo com base nos resultados da análise."""
@@ -251,8 +238,12 @@ if uploaded_file is not None:
                     col3.metric("Padrão de Dispersão (NNI)", nni_texto, help=help_nni)
                     n_clusters_total = len(set(gdf_com_clusters['cluster'])) - (1 if -1 in gdf_com_clusters['cluster'] else 0)
                     total_pontos = len(gdf_com_clusters); n_ruido = list(gdf_com_clusters['cluster']).count(-1); percent_dispersos = (n_ruido / total_pontos * 100) if total_pontos > 0 else 0
+                    
                     with st.expander("🔍 O que estes números significam?", expanded=True):
-                         st.markdown(gerar_resumo_didatico(n_clusters_total, percent_dispersos), unsafe_allow_html=True)
+                         # CORREÇÃO: Passando todos os argumentos necessários para a função
+                         resumo_html = gerar_resumo_didatico(nni_valor_final, n_clusters_total, percent_dispersos)
+                         st.markdown(resumo_html, unsafe_allow_html=True)
+                    
                     st.subheader("Resumo da Análise de Cluster")
                     n_agrupados = total_pontos - n_ruido
                     if total_pontos > 0:
@@ -333,7 +324,6 @@ if uploaded_file is not None:
                                 if not gdf_alocados_final.empty:
                                     hulls_pacotes = gdf_alocados_final.dissolve(by=['centro_operativo', 'pacote_id']).convex_hull
                                     gdf_hulls_pacotes = gpd.GeoDataFrame(geometry=hulls_pacotes).reset_index()
-                                    # CORREÇÃO DO NameError: a lambda agora tem um argumento 'feature'
                                     folium.GeoJson(gdf_hulls_pacotes, style_function=lambda feature: {'color': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'weight': 2.5, 'fillColor': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'fillOpacity': 0.25}, tooltip=f"CO: {feature['properties']['centro_operativo']}, Pacote: {feature['properties']['pacote_id']}").add_to(m_pacotes)
                                 for _, row in gdf_excedentes_final.iterrows():
                                     folium.Marker(location=[row['latitude'], row['longitude']], tooltip="Serviço Excedente", icon=folium.Icon(color='red', icon='times-circle', prefix='fa')).add_to(m_pacotes)
