@@ -335,7 +335,23 @@ if uploaded_file is not None:
                                     hulls_pacotes = gdf_alocados_final.dissolve(by=['centro_operativo', 'pacote_id']).convex_hull
                                     gdf_hulls_pacotes = gpd.GeoDataFrame(geometry=hulls_pacotes).reset_index()
                                     # CORREÇÃO DO NameError
-                                    folium.GeoJson(gdf_hulls_pacotes, style_function=lambda feature: {'color': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'weight': 2.5, 'fillColor': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'fillOpacity': 0.25}, tooltip=f"CO: {feature['properties']['centro_operativo']}, Pacote: {feature['properties']['pacote_id']}").add_to(m_pacotes)
+                                   # =================== CÓDIGO CORRIGIDO ===================
+folium.GeoJson(
+    gdf_hulls_pacotes,
+    style_function=lambda feature: {
+        'color': cores_co.get(feature['properties']['centro_operativo'], 'gray'),
+        'weight': 2.5,
+        'fillColor': cores_co.get(feature['properties']['centro_operativo'], 'gray'),
+        'fillOpacity': 0.25
+    },
+    tooltip=folium.GeoJsonTooltip(
+        fields=['centro_operativo', 'pacote_id'],
+        aliases=['CO:', 'Pacote:'],
+        localize=True,
+        sticky=True
+    )
+).add_to(m_pacotes)
+# =========================================================
                                 for _, row in gdf_excedentes_final.iterrows():
                                     folium.Marker(location=[row['latitude'], row['longitude']], tooltip="Serviço Excedente", icon=folium.Icon(color='red', icon='times-circle', prefix='fa')).add_to(m_pacotes)
                                 st_folium(m_pacotes, use_container_width=True, height=700)
@@ -352,3 +368,4 @@ if uploaded_file is not None:
             st.warning("Nenhum dado para exibir com os filtros atuais.")
 else:
     st.info("Aguardando o upload de um arquivo para iniciar a análise.")
+
