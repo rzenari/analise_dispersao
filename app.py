@@ -7,7 +7,7 @@ import geopandas as gpd
 import numpy as np
 from sklearn.cluster import DBSCAN, KMeans
 from scipy.spatial import cKDTree
-from math import sqrt
+from math import sqrt, ceil
 import folium
 from streamlit_folium import st_folium
 from folium.plugins import MarkerCluster
@@ -65,7 +65,6 @@ def carregar_dados_metas(arquivo_metas):
         df = pd.read_excel(arquivo_metas, engine='openpyxl')
         df.columns = df.columns.str.lower().str.strip()
         if 'centro_operativo' in df.columns:
-            # Padronização da chave de junção
             df['centro_operativo'] = df['centro_operativo'].str.strip().str.upper()
             return df
         else:
@@ -107,53 +106,93 @@ def executar_dbscan(gdf, eps_km=0.5, min_samples=3):
     gdf_copy['cluster'] = db.labels_
     return gdf_copy
 
-def simular_pacotes_de_trabalho(gdf_cluster, n_equipes, capacidade):
-    """Simula a criação de pacotes de trabalho usando K-Means e realocação para respeitar a capacidade."""
-    if gdf_cluster.empty or n_equipes == 0:
-        return gdf_cluster.copy(), gpd.GeoDataFrame()
+# ##############################################################################
+# ## INÍCIO DA NOVA LÓGICA DE SIMULAÇÃO DE PACOTES POR DENSIDADE              ##
+# ##############################################################################
+def simular_pacotes_por_densidade(gdf_co, n_equipes, capacidade):
+    """
+    Simula a criação de pacotes com base na densidade dos clusters encontrados pelo DBSCAN.
+    1. Analisa cada cluster (hotspot) do DBSCAN.
+    2. Se um cluster for maior que a capacidade, subdivide-o com K-Means.
+    3. Cria uma lista de todos os pacotes candidatos (originais + subdivididos).
+    4. Calcula a densidade (serviços/km²) de cada candidato.
+    5. Ranqueia os candidatos pela densidade.
+    6. Seleciona os N melhores pacotes, onde N é o número de equipes.
+    """
+    if gdf_co.empty or n_equipes == 0 or capacidade == 0:
+        return gpd.GeoDataFrame(), gdf_co.copy()
 
-    # Garante que não tentaremos criar mais pacotes do que pontos existentes
-    n_clusters_kmeans = min(n_equipes, len(gdf_cluster))
-    if n_clusters_kmeans == 0:
-        return gpd.GeoDataFrame(), gdf_cluster.copy()
+    # Separa os serviços que já formam clusters (hotspots) dos dispersos (ruído)
+    gdf_clusters_reais = gdf_co[gdf_co['cluster'] != -1].copy()
+    if gdf_clusters_reais.empty:
+        return gpd.GeoDataFrame(), gdf_co.copy()
 
-    kmeans = KMeans(n_clusters=n_clusters_kmeans, random_state=42, n_init='auto')
-    coords = gdf_cluster[['longitude', 'latitude']].values
-    gdf_cluster['pacote_id'] = kmeans.fit_predict(coords)
+    pacotes_candidatos = []
     
-    pacotes_sobrecarregados = []; indices_excedentes = []
+    # Itera sobre cada cluster (hotspot) encontrado pelo DBSCAN
+    for cluster_id in gdf_clusters_reais['cluster'].unique():
+        gdf_cluster_atual = gdf_clusters_reais[gdf_clusters_reais['cluster'] == cluster_id]
+        contagem = len(gdf_cluster_atual)
 
-    for i in range(n_clusters_kmeans):
-        pacote_atual = gdf_cluster[gdf_cluster['pacote_id'] == i]
-        if len(pacote_atual) > capacidade:
-            pacotes_sobrecarregados.append(i)
-            centro = kmeans.cluster_centers_[i]
-            distancias = np.linalg.norm(pacote_atual[['longitude', 'latitude']].values - centro, axis=1)
-            pacote_atual_sorted = pacote_atual.iloc[distancias.argsort()]
-            indices_excedentes.extend(pacote_atual_sorted.index[capacidade:])
+        # Se o cluster for maior que a capacidade, ele precisa ser subdividido
+        if contagem > capacidade:
+            n_sub_pacotes = ceil(contagem / capacidade)
+            kmeans = KMeans(n_clusters=n_sub_pacotes, random_state=42, n_init='auto')
+            coords = gdf_cluster_atual[['longitude', 'latitude']].values
+            sub_labels = kmeans.fit_predict(coords)
+            
+            gdf_cluster_atual['sub_pacote_id'] = sub_labels
+            
+            # Analisa cada sub-pacote gerado
+            for sub_id in gdf_cluster_atual['sub_pacote_id'].unique():
+                sub_pacote = gdf_cluster_atual[gdf_cluster_atual['sub_pacote_id'] == sub_id]
+                if not sub_pacote.empty:
+                    pacotes_candidatos.append({'indices': sub_pacote.index, 'pontos': sub_pacote})
+        # Se o cluster já for compatível com a capacidade, ele é um candidato direto
+        else:
+            pacotes_candidatos.append({'indices': gdf_cluster_atual.index, 'pontos': gdf_cluster_atual})
 
-    if indices_excedentes:
-        gdf_excedentes = gdf_cluster.loc[indices_excedentes].copy()
-        gdf_cluster.loc[indices_excedentes, 'pacote_id'] = -1
-        
-        if not gdf_excedentes.empty:
-            tree_excedentes = cKDTree(gdf_excedentes[['longitude', 'latitude']].values)
-            for i in range(n_clusters_kmeans):
-                if i not in pacotes_sobrecarregados:
-                    pacote_atual = gdf_cluster[gdf_cluster['pacote_id'] == i]
-                    capacidade_restante = capacidade - len(pacote_atual)
-                    if capacidade_restante > 0 and not gdf_excedentes.empty:
-                        centro_pacote = kmeans.cluster_centers_[i]
-                        dist, idx = tree_excedentes.query([centro_pacote], k=min(capacidade_restante, len(gdf_excedentes)))
-                        if not isinstance(idx, np.ndarray): idx = np.array([idx])
-                        indices_para_alocar = gdf_excedentes.index[idx.flatten()]
-                        gdf_cluster.loc[indices_para_alocar, 'pacote_id'] = i
-                        gdf_excedentes = gdf_excedentes.drop(indices_para_alocar)
-                        if not gdf_excedentes.empty: tree_excedentes = cKDTree(gdf_excedentes[['longitude', 'latitude']].values)
+    # Calcula a densidade para cada pacote candidato para poder ranquear
+    pacotes_ranqueados = []
+    for candidato in pacotes_candidatos:
+        pontos = candidato['pontos']
+        contagem = len(pontos)
+        if contagem > 0:
+            try:
+                hull = pontos.unary_union.convex_hull
+                gdf_hull = gpd.GeoDataFrame(geometry=[hull], crs="EPSG:4326")
+                area_km2 = (gdf_hull.to_crs("EPSG:3857").geometry.area / 1_000_000).iloc[0]
+                densidade = contagem / area_km2 if area_km2 > 0 else 0
+                
+                candidato['contagem'] = contagem
+                candidato['area_km2'] = round(area_km2, 2)
+                candidato['densidade'] = round(densidade, 2)
+                pacotes_ranqueados.append(candidato)
+            except Exception:
+                # Ignora geometrias inválidas que possam surgir
+                continue
+
+    # Ordena os pacotes pela maior densidade
+    pacotes_ranqueados.sort(key=lambda p: p['densidade'], reverse=True)
     
-    gdf_alocados = gdf_cluster[gdf_cluster['pacote_id'] != -1].copy()
-    gdf_excedentes_final = gdf_cluster[gdf_cluster['pacote_id'] == -1].copy()
-    return gdf_alocados, gdf_excedentes_final
+    # Seleciona os N melhores pacotes, onde N é o número de equipes
+    pacotes_vencedores = pacotes_ranqueados[:n_equipes]
+    
+    # Coleta os índices de todos os serviços que foram alocados
+    indices_alocados = []
+    for i, pacote in enumerate(pacotes_vencedores):
+        gdf_co.loc[pacote['indices'], 'pacote_id'] = i  # Atribui o ID do pacote final
+        indices_alocados.extend(pacote['indices'])
+
+    # Separa os GDFs finais
+    gdf_alocados = gdf_co.loc[indices_alocados].copy()
+    gdf_excedentes = gdf_co.drop(indices_alocados).copy()
+
+    return gdf_alocados, gdf_excedentes
+
+# ##############################################################################
+# ## FIM DA NOVA LÓGICA DE SIMULAÇÃO                                          ##
+# ##############################################################################
 
 def gerar_resumo_didatico(nni_valor, n_clusters, percent_dispersos, is_media=False):
     """Gera um texto interpretativo com base nos resultados da análise."""
@@ -310,78 +349,70 @@ if uploaded_file is not None:
                 with tabs[pacotes_tab_index]: # Pacotes de Trabalho
                     with st.spinner('Simulando roteirização e desenhando pacotes...'):
                         st.subheader("Simulação de Roteirização Diária"); st.write("Este mapa simula a alocação dos serviços agrupados entre as equipes de um CO, respeitando a capacidade de produção de cada uma.")
-                        gdf_clusters_reais = gdf_com_clusters[gdf_com_clusters['cluster'] != -1]
-                        if not gdf_clusters_reais.empty:
-                            todos_alocados = []; todos_excedentes = []
-                            for co in gdf_clusters_reais['centro_operativo'].unique():
-                                gdf_co = gdf_clusters_reais[gdf_clusters_reais['centro_operativo'] == co].copy()
-                                metas_co = df_metas[df_metas['centro_operativo'].str.strip().str.upper() == co.strip().upper()]
-                                if not metas_co.empty:
-                                    n_equipes = int(metas_co['equipes'].iloc[0]); capacidade = int(metas_co['produção'].iloc[0])
-                                    if n_equipes > 0 and capacidade > 0 and len(gdf_co) > 0:
-                                        alocados, excedentes = simular_pacotes_de_trabalho(gdf_co, n_equipes, capacidade)
-                                        todos_alocados.append(alocados); todos_excedentes.append(excedentes)
-                            if todos_alocados:
-                                gdf_alocados_final = pd.concat(todos_alocados) if todos_alocados else gpd.GeoDataFrame()
-                                gdf_excedentes_final = pd.concat(todos_excedentes) if todos_excedentes else gpd.GeoDataFrame()
-                                st.markdown("##### Performance da Carteira Agrupada")
-                                c1, c2, c3 = st.columns(3)
-                                c1.metric("Serviços Agrupados", len(gdf_clusters_reais))
-                                c2.metric("Serviços Alocados", len(gdf_alocados_final))
-                                c3.metric("Serviços Excedentes", len(gdf_excedentes_final), delta=f"-{len(gdf_excedentes_final)} não roteirizados", delta_color="inverse")
-                                map_center_pacotes = [gdf_clusters_reais.latitude.mean(), gdf_clusters_reais.longitude.mean()]
-                                m_pacotes = folium.Map(location=map_center_pacotes, zoom_start=10)
-                                cores_co = {co: color for co, color in zip(gdf_com_clusters['centro_operativo'].unique(), ['blue', 'green', 'purple', 'orange', 'darkred', 'red', 'lightred', 'beige', 'darkblue', 'darkgreen', 'cadetblue', 'lightgreen', 'pink', 'lightblue', 'lightgray', 'black'])}
-                                if not gdf_alocados_final.empty:
-                                    hulls_pacotes = gdf_alocados_final.dissolve(by=['centro_operativo', 'pacote_id']).convex_hull
-                                    gdf_hulls_pacotes = gpd.GeoDataFrame(geometry=hulls_pacotes).reset_index()
-                                    
-                                    # #################################################
-                                    # ## INÍCIO DAS ALTERAÇÕES SOLICITADAS           ##
-                                    # #################################################
-                                    
-                                    # 1. CALCULAR CONTAGEM DE SERVIÇOS POR PACOTE
-                                    counts_pacotes = gdf_alocados_final.groupby(['centro_operativo', 'pacote_id']).size().rename('contagem')
-                                    gdf_hulls_pacotes = gdf_hulls_pacotes.merge(counts_pacotes, on=['centro_operativo', 'pacote_id'])
-                                    
-                                    # 2. CALCULAR ÁREA E DENSIDADE
-                                    gdf_hulls_pacotes_proj = gdf_hulls_pacotes.to_crs("EPSG:3857")
-                                    gdf_hulls_pacotes['area_km2'] = (gdf_hulls_pacotes_proj.geometry.area / 1_000_000).round(2)
-                                    # Para evitar divisão por zero em áreas muito pequenas:
-                                    gdf_hulls_pacotes['densidade'] = 0.0
-                                    non_zero_area = gdf_hulls_pacotes['area_km2'] > 0
-                                    gdf_hulls_pacotes.loc[non_zero_area, 'densidade'] = (gdf_hulls_pacotes.loc[non_zero_area, 'contagem'] / gdf_hulls_pacotes.loc[non_zero_area, 'area_km2']).round(1)
+                        
+                        gdf_com_clusters['pacote_id'] = -1 # Prepara a coluna para a nova lógica
+                        
+                        todos_alocados = []; todos_excedentes = []
+                        for co in gdf_com_clusters['centro_operativo'].unique():
+                            gdf_co = gdf_com_clusters[gdf_com_clusters['centro_operativo'] == co].copy()
+                            metas_co = df_metas[df_metas['centro_operativo'].str.strip().str.upper() == co.strip().upper()]
+                            
+                            if not metas_co.empty:
+                                n_equipes = int(metas_co['equipes'].iloc[0]); capacidade = int(metas_co['produção'].iloc[0])
+                                if n_equipes > 0 and capacidade > 0 and len(gdf_co) > 0:
+                                    alocados, excedentes = simular_pacotes_por_densidade(gdf_co, n_equipes, capacidade)
+                                    todos_alocados.append(alocados)
+                                    todos_excedentes.append(excedentes)
+                            else: # Se não há meta para o CO, todos os serviços são excedentes
+                                todos_excedentes.append(gdf_co)
 
-                                    # 3. ATUALIZAR TOOLTIP E PLOTAR NO MAPA
-                                    folium.GeoJson(
-                                        gdf_hulls_pacotes,
-                                        style_function=lambda feature: {
-                                            'color': cores_co.get(feature['properties']['centro_operativo'], 'gray'),
-                                            'weight': 2.5,
-                                            'fillColor': cores_co.get(feature['properties']['centro_operativo'], 'gray'),
-                                            'fillOpacity': 0.25
-                                        },
-                                        tooltip=folium.GeoJsonTooltip(
-                                            fields=['centro_operativo', 'pacote_id', 'contagem', 'area_km2', 'densidade'],
-                                            aliases=['CO:', 'Pacote:', 'Nº de Serviços:', 'Área (km²):', 'Serviços por km²:'],
-                                            localize=True,
-                                            sticky=True
-                                        )
-                                    ).add_to(m_pacotes)
-                                    
-                                    # #################################################
-                                    # ## FIM DAS ALTERAÇÕES SOLICITADAS              ##
-                                    # #################################################
-
-                                # COMENTADO PARA NÃO PLOTAR OS PONTOS EXCEDENTES E MELHORAR A PERFORMANCE
-                                # for _, row in gdf_excedentes_final.iterrows():
-                                #     folium.Marker(location=[row['latitude'], row['longitude']], tooltip="Serviço Excedente", icon=folium.Icon(color='red', icon='times-circle', prefix='fa')).add_to(m_pacotes)
+                        if todos_alocados:
+                            gdf_alocados_final = pd.concat(todos_alocados) if todos_alocados else gpd.GeoDataFrame()
+                            gdf_excedentes_final = pd.concat(todos_excedentes) if todos_excedentes else gpd.GeoDataFrame()
+                            st.markdown("##### Performance da Carteira Agrupada")
+                            c1, c2, c3 = st.columns(3)
+                            total_servicos_analisados = len(gdf_alocados_final) + len(gdf_excedentes_final)
+                            c1.metric("Serviços na Análise", total_servicos_analisados)
+                            c2.metric("Serviços Alocados", len(gdf_alocados_final))
+                            c3.metric("Serviços Excedentes", len(gdf_excedentes_final), delta=f"-{len(gdf_excedentes_final)} não roteirizados", delta_color="inverse")
+                            
+                            map_center_pacotes = [gdf_com_clusters.latitude.mean(), gdf_com_clusters.longitude.mean()]
+                            m_pacotes = folium.Map(location=map_center_pacotes, zoom_start=10)
+                            cores_co = {co: color for co, color in zip(gdf_com_clusters['centro_operativo'].unique(), ['blue', 'green', 'purple', 'orange', 'darkred', 'red', 'lightred', 'beige', 'darkblue', 'darkgreen', 'cadetblue', 'lightgreen', 'pink', 'lightblue', 'lightgray', 'black'])}
+                            
+                            if not gdf_alocados_final.empty:
+                                hulls_pacotes = gdf_alocados_final.dissolve(by=['centro_operativo', 'pacote_id']).convex_hull
+                                gdf_hulls_pacotes = gpd.GeoDataFrame(geometry=hulls_pacotes).reset_index()
                                 
-                                st_folium(m_pacotes, use_container_width=True, height=700)
-                            else:
-                                st.info("Nenhum pacote de trabalho para simular.")
-                        else: st.warning("Nenhum cluster encontrado para dividir em pacotes.")
-            
+                                counts_pacotes = gdf_alocados_final.groupby(['centro_operativo', 'pacote_id']).size().rename('contagem')
+                                gdf_hulls_pacotes = gdf_hulls_pacotes.merge(counts_pacotes, on=['centro_operativo', 'pacote_id'])
+                                
+                                gdf_hulls_pacotes_proj = gdf_hulls_pacotes.to_crs("EPSG:3857")
+                                gdf_hulls_pacotes['area_km2'] = (gdf_hulls_pacotes_proj.geometry.area / 1_000_000).round(2)
+                                gdf_hulls_pacotes['densidade'] = 0.0
+                                non_zero_area = gdf_hulls_pacotes['area_km2'] > 0
+                                gdf_hulls_pacotes.loc[non_zero_area, 'densidade'] = (gdf_hulls_pacotes.loc[non_zero_area, 'contagem'] / gdf_hulls_pacotes.loc[non_zero_area, 'area_km2']).round(1)
+
+                                folium.GeoJson(
+                                    gdf_hulls_pacotes,
+                                    style_function=lambda feature: {
+                                        'color': cores_co.get(feature['properties']['centro_operativo'], 'gray'),
+                                        'weight': 2.5,
+                                        'fillColor': cores_co.get(feature['properties']['centro_operativo'], 'gray'),
+                                        'fillOpacity': 0.25
+                                    },
+                                    tooltip=folium.GeoJsonTooltip(
+                                        fields=['centro_operativo', 'pacote_id', 'contagem', 'area_km2', 'densidade'],
+                                        aliases=['CO:', 'Pacote:', 'Nº de Serviços:', 'Área (km²):', 'Serviços por km²:'],
+                                        localize=True,
+                                        sticky=True
+                                    )
+                                ).add_to(m_pacotes)
+                            
+                            st_folium(m_pacotes, use_container_width=True, height=700)
+                        else:
+                            st.info("Nenhum pacote de trabalho para simular.")
+
             with tabs[-1]: # Metodologia
                 st.subheader("As Metodologias por Trás da Análise")
                 st.markdown("""...""") # Seu texto de metodologia aqui
