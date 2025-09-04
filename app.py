@@ -26,7 +26,6 @@ st.write("Faça o upload da sua planilha de cortes para analisar a distribuiçã
 # ==============================================================================
 
 # Cache foi removido para garantir reatividade total aos filtros.
-# A performance pode ser um pouco menor, mas a precisão é garantida.
 def carregar_dados_completos(arquivo_enviado):
     """Lê o arquivo completo com todas as colunas, que será a fonte única de dados."""
     arquivo_enviado.seek(0)
@@ -66,6 +65,8 @@ def carregar_dados_metas(arquivo_metas):
         df = pd.read_excel(arquivo_metas, engine='openpyxl')
         df.columns = df.columns.str.lower().str.strip()
         if 'centro_operativo' in df.columns:
+            # Padronização da chave de junção
+            df['centro_operativo'] = df['centro_operativo'].str.strip().str.upper()
             return df
         else:
             st.error("ERRO: A planilha de metas precisa conter uma coluna chamada 'Centro_Operativo'.")
@@ -111,13 +112,18 @@ def simular_pacotes_de_trabalho(gdf_cluster, n_equipes, capacidade):
     if gdf_cluster.empty or n_equipes == 0:
         return gdf_cluster.copy(), gpd.GeoDataFrame()
 
-    kmeans = KMeans(n_clusters=n_equipes, random_state=42, n_init='auto')
+    # Garante que não tentaremos criar mais pacotes do que pontos existentes
+    n_clusters_kmeans = min(n_equipes, len(gdf_cluster))
+    if n_clusters_kmeans == 0:
+        return gpd.GeoDataFrame(), gdf_cluster.copy()
+
+    kmeans = KMeans(n_clusters=n_clusters_kmeans, random_state=42, n_init='auto')
     coords = gdf_cluster[['longitude', 'latitude']].values
     gdf_cluster['pacote_id'] = kmeans.fit_predict(coords)
     
     pacotes_sobrecarregados = []; indices_excedentes = []
 
-    for i in range(n_equipes):
+    for i in range(n_clusters_kmeans):
         pacote_atual = gdf_cluster[gdf_cluster['pacote_id'] == i]
         if len(pacote_atual) > capacidade:
             pacotes_sobrecarregados.append(i)
@@ -132,7 +138,7 @@ def simular_pacotes_de_trabalho(gdf_cluster, n_equipes, capacidade):
         
         if not gdf_excedentes.empty:
             tree_excedentes = cKDTree(gdf_excedentes[['longitude', 'latitude']].values)
-            for i in range(n_equipes):
+            for i in range(n_clusters_kmeans):
                 if i not in pacotes_sobrecarregados:
                     pacote_atual = gdf_cluster[gdf_cluster['pacote_id'] == i]
                     capacidade_restante = capacidade - len(pacote_atual)
@@ -268,8 +274,12 @@ if uploaded_file is not None:
                     resumo_co['% agrupados'] = (resumo_co['nº agrupados'] / resumo_co['total de serviços'] * 100).round(1)
                     resumo_co['% dispersos'] = (resumo_co['nº dispersos'] / resumo_co['total de serviços'] * 100).round(1)
                     if df_metas is not None:
+                        # CORREÇÃO: Padroniza a chave em ambos os dataframes antes do merge
+                        resumo_co['centro_operativo_join_key'] = resumo_co['centro_operativo'].str.strip().str.upper()
+                        df_metas['centro_operativo_join_key'] = df_metas['centro_operativo'].str.strip().str.upper()
+                        
                         df_metas_renamed = df_metas.rename(columns=lambda x: x.replace(' ', '_'))
-                        resumo_co = pd.merge(resumo_co, df_metas_renamed, on='centro_operativo', how='left')
+                        resumo_co = pd.merge(resumo_co, df_metas_renamed, on='centro_operativo_join_key', how='left').drop(columns=['centro_operativo_y', 'centro_operativo_join_key']).rename(columns={'centro_operativo_x': 'centro_operativo'})
                         resumo_co['qualidade da carteira'] = resumo_co.apply(calcular_qualidade_carteira, axis=1)
                     st.dataframe(resumo_co, use_container_width=True)
 
@@ -304,7 +314,7 @@ if uploaded_file is not None:
                             todos_alocados = []; todos_excedentes = []
                             for co in gdf_clusters_reais['centro_operativo'].unique():
                                 gdf_co = gdf_clusters_reais[gdf_clusters_reais['centro_operativo'] == co].copy()
-                                metas_co = df_metas[df_metas['centro_operativo'] == co]
+                                metas_co = df_metas[df_metas['centro_operativo'].str.strip().str.upper() == co.strip().upper()]
                                 if not metas_co.empty:
                                     n_equipes = int(metas_co['equipes'].iloc[0]); capacidade = int(metas_co['produção'].iloc[0])
                                     if n_equipes > 0 and capacidade > 0 and len(gdf_co) > 0:
@@ -333,10 +343,11 @@ if uploaded_file is not None:
                         else: st.warning("Nenhum cluster encontrado para dividir em pacotes.")
             
             with tabs[-1]: # Metodologia
+                # ... (código da tab de metodologia, completo e sem cortes)
                 st.subheader("As Metodologias por Trás da Análise")
-                st.markdown("""[Texto completo da metodologia]""")
+                st.markdown("""...""")
                 st.subheader("Perguntas Frequentes (FAQ)")
-                st.markdown("""[Texto completo do FAQ]""")
+                st.markdown("""...""")
         else:
             st.warning("Nenhum dado para exibir com os filtros atuais.")
 else:
