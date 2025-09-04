@@ -201,8 +201,10 @@ if uploaded_file is not None:
             if coluna in df_completo.columns:
                 lista_unica = df_completo[coluna].dropna().unique().tolist()
                 opcoes = sorted([str(item) for item in lista_unica])
-                if coluna == 'prioridade': valores_selecionados[coluna] = st.sidebar.multiselect(f"{coluna.replace('_', ' ').title()}", opcoes)
-                else: valores_selecionados[coluna] = st.sidebar.selectbox(f"{coluna.replace('_', ' ').title()}", ["Todos"] + opcoes)
+                if coluna == 'prioridade':
+                    valores_selecionados[coluna] = st.sidebar.multiselect(f"{coluna.replace('_', ' ').title()}", opcoes)
+                else:
+                    valores_selecionados[coluna] = st.sidebar.selectbox(f"{coluna.replace('_', ' ').title()}", ["Todos"] + opcoes)
 
         df_filtrado = df_completo.copy()
         for coluna, valor in valores_selecionados.items():
@@ -248,7 +250,7 @@ if uploaded_file is not None:
                     n_clusters_total = len(set(gdf_com_clusters['cluster'])) - (1 if -1 in gdf_com_clusters['cluster'] else 0)
                     total_pontos = len(gdf_com_clusters); n_ruido = list(gdf_com_clusters['cluster']).count(-1); percent_dispersos = (n_ruido / total_pontos * 100) if total_pontos > 0 else 0
                     with st.expander("🔍 O que estes números significam?", expanded=True):
-                         st.markdown(gerar_resumo_didatico(nni_valor_final, n_clusters_total, percent_dispersos), unsafe_allow_html=True)
+                        st.markdown(gerar_resumo_didatico(nni_valor_final, n_clusters_total, percent_dispersos), unsafe_allow_html=True)
                     st.subheader("Resumo da Análise de Cluster")
                     n_agrupados = total_pontos - n_ruido
                     if total_pontos > 0:
@@ -334,38 +336,42 @@ if uploaded_file is not None:
                                 if not gdf_alocados_final.empty:
                                     hulls_pacotes = gdf_alocados_final.dissolve(by=['centro_operativo', 'pacote_id']).convex_hull
                                     gdf_hulls_pacotes = gpd.GeoDataFrame(geometry=hulls_pacotes).reset_index()
-                                    # CORREÇÃO DO NameError
-                                   # =================== CÓDIGO CORRIGIDO ===================
-folium.GeoJson(
-    gdf_hulls_pacotes,
-    style_function=lambda feature: {
-        'color': cores_co.get(feature['properties']['centro_operativo'], 'gray'),
-        'weight': 2.5,
-        'fillColor': cores_co.get(feature['properties']['centro_operativo'], 'gray'),
-        'fillOpacity': 0.25
-    },
-    tooltip=folium.GeoJsonTooltip(
-        fields=['centro_operativo', 'pacote_id'],
-        aliases=['CO:', 'Pacote:'],
-        localize=True,
-        sticky=True
-    )
-).add_to(m_pacotes)
-# =========================================================
+                                    
+                                    # ######################################
+                                    # ## INÍCIO DA CORREÇÃO DO NAMEERROR  ##
+                                    # ######################################
+                                    folium.GeoJson(
+                                        gdf_hulls_pacotes,
+                                        style_function=lambda feature: {
+                                            'color': cores_co.get(feature['properties']['centro_operativo'], 'gray'),
+                                            'weight': 2.5,
+                                            'fillColor': cores_co.get(feature['properties']['centro_operativo'], 'gray'),
+                                            'fillOpacity': 0.25
+                                        },
+                                        tooltip=folium.GeoJsonTooltip(
+                                            fields=['centro_operativo', 'pacote_id'],
+                                            aliases=['CO:', 'Pacote:'],
+                                            localize=True,
+                                            sticky=True
+                                        )
+                                    ).add_to(m_pacotes)
+                                    # ####################################
+                                    # ## FIM DA CORREÇÃO DO NAMEERROR   ##
+                                    # ####################################
+                                    
                                 for _, row in gdf_excedentes_final.iterrows():
                                     folium.Marker(location=[row['latitude'], row['longitude']], tooltip="Serviço Excedente", icon=folium.Icon(color='red', icon='times-circle', prefix='fa')).add_to(m_pacotes)
                                 st_folium(m_pacotes, use_container_width=True, height=700)
-                            else: st.info("Nenhum pacote de trabalho para simular.")
+                            else:
+                                st.info("Nenhum pacote de trabalho para simular.")
                         else: st.warning("Nenhum cluster encontrado para dividir em pacotes.")
             
             with tabs[-1]: # Metodologia
-                # ... (código da tab de metodologia, completo e sem cortes)
                 st.subheader("As Metodologias por Trás da Análise")
-                st.markdown("""...""")
+                st.markdown("""...""") # Seu texto de metodologia aqui
                 st.subheader("Perguntas Frequentes (FAQ)")
-                st.markdown("""...""")
+                st.markdown("""...""") # Seu texto de FAQ aqui
         else:
             st.warning("Nenhum dado para exibir com os filtros atuais.")
 else:
     st.info("Aguardando o upload de um arquivo para iniciar a análise.")
-
