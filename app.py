@@ -24,8 +24,6 @@ st.write("Faça o upload da sua planilha de cortes para analisar a distribuiçã
 # ==============================================================================
 # 3. FUNÇÕES DE ANÁLISE
 # ==============================================================================
-
-# Cache foi removido para garantir reatividade total aos filtros.
 def carregar_dados_completos(arquivo_enviado):
     """Lê o arquivo completo com todas as colunas, que será a fonte única de dados."""
     arquivo_enviado.seek(0)
@@ -64,11 +62,11 @@ def carregar_dados_metas(arquivo_metas):
     try:
         df = pd.read_excel(arquivo_metas, engine='openpyxl')
         df.columns = df.columns.str.lower().str.strip()
-        if 'centro_operativo' in df.columns:
+        if 'centro_operativo' in df.columns and 'produção' in df.columns:
             df['centro_operativo'] = df['centro_operativo'].str.strip().str.upper()
             return df
         else:
-            st.error("ERRO: A planilha de metas precisa conter uma coluna chamada 'Centro_Operativo'.")
+            st.error("ERRO: A planilha de metas precisa conter as colunas 'Centro_Operativo' e 'Produção'.")
             return None
     except Exception as e:
         st.error(f"Não foi possível ler a planilha de metas. Erro: {e}")
@@ -106,53 +104,47 @@ def executar_dbscan(gdf, eps_km=0.5, min_samples=3):
     gdf_copy['cluster'] = db.labels_
     return gdf_copy
 
-# ##############################################################################
-# ## INÍCIO DA NOVA LÓGICA DE SIMULAÇÃO DE PACOTES POR DENSIDADE              ##
-# ##############################################################################
-def simular_pacotes_por_densidade(gdf_co, n_equipes, capacidade):
+def simular_pacotes_por_densidade(gdf_co, n_equipes, capacidade_producao):
     """
-    Simula a criação de pacotes com base na densidade dos clusters encontrados pelo DBSCAN.
-    1. Analisa cada cluster (hotspot) do DBSCAN.
-    2. Se um cluster for maior que a capacidade, subdivide-o com K-Means.
-    3. Cria uma lista de todos os pacotes candidatos (originais + subdivididos).
-    4. Calcula a densidade (serviços/km²) de cada candidato.
-    5. Ranqueia os candidatos pela densidade.
-    6. Seleciona os N melhores pacotes, onde N é o número de equipes.
+    Simula pacotes com base na densidade, respeitando estritamente a capacidade de produção.
+    A subdivisão de grandes clusters agora usa um método iterativo de 'descascamento'
+    para garantir que nenhum pacote exceda o limite.
     """
-    if gdf_co.empty or n_equipes == 0 or capacidade == 0:
+    if gdf_co.empty or n_equipes == 0 or capacidade_producao == 0:
         return gpd.GeoDataFrame(), gdf_co.copy()
 
-    # Separa os serviços que já formam clusters (hotspots) dos dispersos (ruído)
     gdf_clusters_reais = gdf_co[gdf_co['cluster'] != -1].copy()
     if gdf_clusters_reais.empty:
         return gpd.GeoDataFrame(), gdf_co.copy()
 
     pacotes_candidatos = []
     
-    # Itera sobre cada cluster (hotspot) encontrado pelo DBSCAN
     for cluster_id in gdf_clusters_reais['cluster'].unique():
         gdf_cluster_atual = gdf_clusters_reais[gdf_clusters_reais['cluster'] == cluster_id]
         contagem = len(gdf_cluster_atual)
 
-        # Se o cluster for maior que a capacidade, ele precisa ser subdividido
-        if contagem > capacidade:
-            n_sub_pacotes = ceil(contagem / capacidade)
-            kmeans = KMeans(n_clusters=n_sub_pacotes, random_state=42, n_init='auto')
-            coords = gdf_cluster_atual[['longitude', 'latitude']].values
-            sub_labels = kmeans.fit_predict(coords)
-            
-            gdf_cluster_atual['sub_pacote_id'] = sub_labels
-            
-            # Analisa cada sub-pacote gerado
-            for sub_id in gdf_cluster_atual['sub_pacote_id'].unique():
-                sub_pacote = gdf_cluster_atual[gdf_cluster_atual['sub_pacote_id'] == sub_id]
-                if not sub_pacote.empty:
-                    pacotes_candidatos.append({'indices': sub_pacote.index, 'pontos': sub_pacote})
-        # Se o cluster já for compatível com a capacidade, ele é um candidato direto
-        else:
+        if 0 < contagem <= capacidade_producao:
             pacotes_candidatos.append({'indices': gdf_cluster_atual.index, 'pontos': gdf_cluster_atual})
+        
+        elif contagem > capacidade_producao:
+            gdf_temp = gdf_cluster_atual.copy()
+            while len(gdf_temp) > 0:
+                if len(gdf_temp) <= capacidade_producao:
+                    pacotes_candidatos.append({'indices': gdf_temp.index, 'pontos': gdf_temp})
+                    break
+                
+                coords_temp = gdf_temp[['longitude', 'latitude']].values
+                tree = cKDTree(coords_temp)
+                
+                _, indices_vizinhos = tree.query(coords_temp[0], k=capacidade_producao)
+                
+                indices_reais_no_gdf_temp = gdf_temp.index[indices_vizinhos]
+                sub_pacote = gdf_temp.loc[indices_reais_no_gdf_temp]
+                
+                pacotes_candidatos.append({'indices': sub_pacote.index, 'pontos': sub_pacote})
+                
+                gdf_temp.drop(indices_reais_no_gdf_temp, inplace=True)
 
-    # Calcula a densidade para cada pacote candidato para poder ranquear
     pacotes_ranqueados = []
     for candidato in pacotes_candidatos:
         pontos = candidato['pontos']
@@ -169,33 +161,23 @@ def simular_pacotes_por_densidade(gdf_co, n_equipes, capacidade):
                 candidato['densidade'] = round(densidade, 2)
                 pacotes_ranqueados.append(candidato)
             except Exception:
-                # Ignora geometrias inválidas que possam surgir
                 continue
 
-    # Ordena os pacotes pela maior densidade
     pacotes_ranqueados.sort(key=lambda p: p['densidade'], reverse=True)
-    
-    # Seleciona os N melhores pacotes, onde N é o número de equipes
     pacotes_vencedores = pacotes_ranqueados[:n_equipes]
     
-    # Coleta os índices de todos os serviços que foram alocados
     indices_alocados = []
+    gdf_co['pacote_id'] = -1 
     for i, pacote in enumerate(pacotes_vencedores):
-        gdf_co.loc[pacote['indices'], 'pacote_id'] = i  # Atribui o ID do pacote final
+        gdf_co.loc[pacote['indices'], 'pacote_id'] = i
         indices_alocados.extend(pacote['indices'])
 
-    # Separa os GDFs finais
     gdf_alocados = gdf_co.loc[indices_alocados].copy()
     gdf_excedentes = gdf_co.drop(indices_alocados).copy()
 
     return gdf_alocados, gdf_excedentes
 
-# ##############################################################################
-# ## FIM DA NOVA LÓGICA DE SIMULAÇÃO                                          ##
-# ##############################################################################
-
 def gerar_resumo_didatico(nni_valor, n_clusters, percent_dispersos, is_media=False):
-    """Gera um texto interpretativo com base nos resultados da análise."""
     if nni_valor is None: return ""
     prefixo = "Na média, o padrão" if is_media else "O padrão"
     if percent_dispersos > 50:
@@ -212,10 +194,11 @@ def gerar_resumo_didatico(nni_valor, n_clusters, percent_dispersos, is_media=Fal
 
 def calcular_qualidade_carteira(row):
     """Calcula a qualidade da carteira com base nas metas e serviços agrupados."""
-    if pd.isna(row.get('meta diária')) or row.get('meta diária') == 0: return "Sem Meta"
+    meta_diaria = row.get('meta_diária', 0)
+    if pd.isna(meta_diaria) or meta_diaria == 0: return "Sem Meta"
     if pd.isna(row.get('nº agrupados')) or pd.isna(row.get('total de serviços')): return "Dados Insuficientes"
-    if row['nº agrupados'] >= row['meta diária']: return "✅ Ótima"
-    elif row['total de serviços'] >= row['meta diária']: return "⚠️ Atenção"
+    if row['nº agrupados'] >= meta_diaria: return "✅ Ótima"
+    elif row['total de serviços'] >= meta_diaria: return "⚠️ Atenção"
     else: return "❌ Crítica"
 
 # ==============================================================================
@@ -280,35 +263,45 @@ if uploaded_file is not None:
             lista_abas.append("💡 Metodologia")
             tabs = st.tabs(lista_abas)
 
-            with tabs[0]: # Análise Geográfica
+            with tabs[0]:
                 with st.spinner('Carregando análise e mapa...'):
-                    col1, col2, col3 = st.columns(3); col1.metric("Total de Cortes Carregados", len(df_completo)); col2.metric("Cortes na Seleção Atual", len(df_filtrado))
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("Total de Cortes Carregados", len(df_completo))
+                    col2.metric("Cortes na Seleção Atual", len(df_filtrado))
                     nni_valor_final, nni_texto = calcular_nni_otimizado(gdf_com_clusters)
                     help_nni = "O Índice do Vizinho Mais Próximo (NNI) mede se o padrão dos pontos é agrupado, disperso ou aleatório. NNI < 1: Agrupado. NNI ≈ 1: Aleatório. NNI > 1: Disperso."
                     col3.metric("Padrão de Dispersão (NNI)", nni_texto, help=help_nni)
                     n_clusters_total = len(set(gdf_com_clusters['cluster'])) - (1 if -1 in gdf_com_clusters['cluster'] else 0)
-                    total_pontos = len(gdf_com_clusters); n_ruido = list(gdf_com_clusters['cluster']).count(-1); percent_dispersos = (n_ruido / total_pontos * 100) if total_pontos > 0 else 0
+                    total_pontos = len(gdf_com_clusters)
+                    n_ruido = list(gdf_com_clusters['cluster']).count(-1)
+                    percent_dispersos = (n_ruido / total_pontos * 100) if total_pontos > 0 else 0
                     with st.expander("🔍 O que estes números significam?", expanded=True):
                         st.markdown(gerar_resumo_didatico(nni_valor_final, n_clusters_total, percent_dispersos), unsafe_allow_html=True)
                     st.subheader("Resumo da Análise de Cluster")
                     n_agrupados = total_pontos - n_ruido
                     if total_pontos > 0:
                         percent_agrupados = (n_agrupados / total_pontos) * 100
-                        c1,c2,c3 = st.columns(3);c1.metric("Nº de Hotspots", f"{n_clusters_total}")
+                        c1,c2,c3 = st.columns(3)
+                        c1.metric("Nº de Hotspots", f"{n_clusters_total}")
                         sc1, sc2 = st.columns(2)
-                        sc1.metric("Nº Agrupados", f"{n_agrupados}"); sc1.metric("% Agrupados", f"{percent_agrupados:.1f}%")
-                        sc2.metric("Nº Dispersos", f"{n_ruido}"); sc2.metric("% Dispersos", f"{percent_dispersos:.1f}%")
-                    st.subheader(f"Mapa Interativo de Hotspots"); st.write("Dê zoom no mapa para expandir os agrupamentos.")
+                        sc1.metric("Nº Agrupados", f"{n_agrupados}")
+                        sc1.metric("% Agrupados", f"{percent_agrupados:.1f}%")
+                        sc2.metric("Nº Dispersos", f"{n_ruido}")
+                        sc2.metric("% Dispersos", f"{percent_dispersos:.1f}%")
+                    st.subheader(f"Mapa Interativo de Hotspots")
+                    st.write("Dê zoom no mapa para expandir os agrupamentos.")
                     if not gdf_visualizacao.empty:
-                        map_center = [gdf_visualizacao.latitude.mean(), gdf_visualizacao.longitude.mean()]; m = folium.Map(location=map_center, zoom_start=11)
+                        map_center = [gdf_visualizacao.latitude.mean(), gdf_visualizacao.longitude.mean()]
+                        m = folium.Map(location=map_center, zoom_start=11)
                         marker_cluster = MarkerCluster().add_to(m)
                         for idx, row in gdf_visualizacao.iterrows():
                             popup_text = "".join([f"{col.replace('_', ' ').title()}: {str(row[col])}<br>" for col in ['prioridade', 'centro_operativo', 'corte_recorte'] if col in row])
                             folium.Marker(location=[row['latitude'], row['longitude']], popup=popup_text).add_to(marker_cluster)
                         st_folium(m, use_container_width=True, height=700)
-                    else: st.warning("Nenhum serviço para exibir no mapa.")
+                    else:
+                        st.warning("Nenhum serviço para exibir no mapa.")
 
-            with tabs[1]: # Resumo por CO
+            with tabs[1]:
                 with st.spinner('Gerando tabela de resumo...'):
                     st.subheader("Análise de Cluster por Centro Operativo")
                     resumo_co = gdf_com_clusters.groupby('centro_operativo').apply(lambda x: pd.Series({'total de serviços': len(x), 'nº de clusters': x[x['cluster'] != -1]['cluster'].nunique(), 'nº agrupados': len(x[x['cluster'] != -1]),'nº dispersos': len(x[x['cluster'] == -1])}), include_groups=False).reset_index()
@@ -323,16 +316,19 @@ if uploaded_file is not None:
                         resumo_co['qualidade da carteira'] = resumo_co.apply(calcular_qualidade_carteira, axis=1)
                     st.dataframe(resumo_co, use_container_width=True)
 
-            with tabs[2]: # Contorno dos Clusters
+            with tabs[2]:
                 with st.spinner('Desenhando contornos dos clusters...'):
-                    st.subheader("Contorno Geográfico dos Clusters"); st.write("Este mapa desenha um polígono ao redor de cada hotspot.")
+                    st.subheader("Contorno Geográfico dos Clusters")
+                    st.write("Este mapa desenha um polígono ao redor de cada hotspot.")
                     gdf_clusters_reais = gdf_visualizacao[gdf_visualizacao['cluster'] != -1]
                     if not gdf_clusters_reais.empty:
-                        map_center_hull = [gdf_clusters_reais.latitude.mean(), gdf_clusters_reais.longitude.mean()]; m_hull = folium.Map(location=map_center_hull, zoom_start=11)
+                        map_center_hull = [gdf_clusters_reais.latitude.mean(), gdf_clusters_reais.longitude.mean()]
+                        m_hull = folium.Map(location=map_center_hull, zoom_start=11)
                         try:
                             counts = gdf_clusters_reais.groupby('cluster').size().rename('contagem')
                             hulls = gdf_clusters_reais.dissolve(by='cluster').convex_hull
-                            gdf_hulls = gpd.GeoDataFrame(geometry=hulls).reset_index(); gdf_hulls_proj = gdf_hulls.to_crs("EPSG:3857")
+                            gdf_hulls = gpd.GeoDataFrame(geometry=hulls).reset_index()
+                            gdf_hulls_proj = gdf_hulls.to_crs("EPSG:3857")
                             gdf_hulls['area_km2'] = (gdf_hulls_proj.geometry.area / 1_000_000).round(2)
                             gdf_hulls = gdf_hulls.merge(counts, on='cluster')
                             gdf_hulls['densidade'] = (gdf_hulls['contagem'] / gdf_hulls['area_km2']).round(1)
@@ -341,50 +337,55 @@ if uploaded_file is not None:
                             for idx, row in gdf_clusters_reais.iterrows():
                                 folium.Marker(location=[row['latitude'], row['longitude']], popup=f"Cluster: {row['cluster']}", icon=folium.Icon(color='blue', icon='info-sign')).add_to(marker_cluster_hull)
                             st_folium(m_hull, use_container_width=True, height=700)
-                        except Exception as e: st.warning(f"Não foi possível desenhar os contornos. Erro: {e}")
-                    else: st.warning("Nenhum cluster para desenhar.")
+                        except Exception as e:
+                            st.warning(f"Não foi possível desenhar os contornos. Erro: {e}")
+                    else:
+                        st.warning("Nenhum cluster para desenhar.")
             
             if df_metas is not None:
                 pacotes_tab_index = 3
-                with tabs[pacotes_tab_index]: # Pacotes de Trabalho
+                with tabs[pacotes_tab_index]:
                     with st.spinner('Simulando roteirização e desenhando pacotes...'):
-                        st.subheader("Simulação de Roteirização Diária"); st.write("Este mapa simula a alocação dos serviços agrupados entre as equipes de um CO, respeitando a capacidade de produção de cada uma.")
+                        st.subheader("Simulação de Roteirização Diária")
+                        st.write("Este mapa simula a alocação dos serviços agrupados entre as equipes de um CO, respeitando a capacidade de produção de cada uma.")
                         
-                        gdf_com_clusters['pacote_id'] = -1 # Prepara a coluna para a nova lógica
-                        
-                        todos_alocados = []; todos_excedentes = []
+                        todos_alocados = []
+                        todos_excedentes = []
                         for co in gdf_com_clusters['centro_operativo'].unique():
                             gdf_co = gdf_com_clusters[gdf_com_clusters['centro_operativo'] == co].copy()
                             metas_co = df_metas[df_metas['centro_operativo'].str.strip().str.upper() == co.strip().upper()]
                             
                             if not metas_co.empty:
-                                n_equipes = int(metas_co['equipes'].iloc[0]); capacidade = int(metas_co['produção'].iloc[0])
-                                if n_equipes > 0 and capacidade > 0 and len(gdf_co) > 0:
-                                    alocados, excedentes = simular_pacotes_por_densidade(gdf_co, n_equipes, capacidade)
+                                n_equipes = int(metas_co['equipes'].iloc[0])
+                                capacidade_producao = int(metas_co['produção'].iloc[0])
+                                
+                                if n_equipes > 0 and capacidade_producao > 0 and len(gdf_co) > 0:
+                                    alocados, excedentes = simular_pacotes_por_densidade(gdf_co, n_equipes, capacidade_producao)
                                     todos_alocados.append(alocados)
                                     todos_excedentes.append(excedentes)
-                            else: # Se não há meta para o CO, todos os serviços são excedentes
+                            else: 
                                 todos_excedentes.append(gdf_co)
 
-                        if todos_alocados:
-                            gdf_alocados_final = pd.concat(todos_alocados) if todos_alocados else gpd.GeoDataFrame()
-                            gdf_excedentes_final = pd.concat(todos_excedentes) if todos_excedentes else gpd.GeoDataFrame()
-                            st.markdown("##### Performance da Carteira Agrupada")
-                            c1, c2, c3 = st.columns(3)
-                            total_servicos_analisados = len(gdf_alocados_final) + len(gdf_excedentes_final)
-                            c1.metric("Serviços na Análise", total_servicos_analisados)
-                            c2.metric("Serviços Alocados", len(gdf_alocados_final))
-                            c3.metric("Serviços Excedentes", len(gdf_excedentes_final), delta=f"-{len(gdf_excedentes_final)} não roteirizados", delta_color="inverse")
-                            
+                        gdf_alocados_final = pd.concat(todos_alocados) if todos_alocados else gpd.GeoDataFrame()
+                        gdf_excedentes_final = pd.concat(todos_excedentes) if todos_excedentes else gpd.GeoDataFrame()
+                        
+                        st.markdown("##### Performance da Carteira Agrupada")
+                        c1, c2, c3 = st.columns(3)
+                        total_servicos_analisados = len(gdf_alocados_final) + len(gdf_excedentes_final)
+                        c1.metric("Serviços na Análise", total_servicos_analisados)
+                        c2.metric("Serviços Alocados", len(gdf_alocados_final))
+                        c3.metric("Serviços Excedentes", len(gdf_excedentes_final), delta=f"-{len(gdf_excedentes_final)} não roteirizados", delta_color="inverse")
+                        
+                        if not gdf_com_clusters.empty:
                             map_center_pacotes = [gdf_com_clusters.latitude.mean(), gdf_com_clusters.longitude.mean()]
                             m_pacotes = folium.Map(location=map_center_pacotes, zoom_start=10)
                             cores_co = {co: color for co, color in zip(gdf_com_clusters['centro_operativo'].unique(), ['blue', 'green', 'purple', 'orange', 'darkred', 'red', 'lightred', 'beige', 'darkblue', 'darkgreen', 'cadetblue', 'lightgreen', 'pink', 'lightblue', 'lightgray', 'black'])}
                             
                             if not gdf_alocados_final.empty:
-                                hulls_pacotes = gdf_alocados_final.dissolve(by=['centro_operativo', 'pacote_id']).convex_hull
-                                gdf_hulls_pacotes = gpd.GeoDataFrame(geometry=hulls_pacotes).reset_index()
+                                gdf_hulls_pacotes = gdf_alocados_final.dissolve(by=['centro_operativo', 'pacote_id']).convex_hull.reset_index()
+                                gdf_hulls_pacotes = gdf_hulls_pacotes.rename(columns={0: 'geometry'}).set_geometry('geometry')
                                 
-                                counts_pacotes = gdf_alocados_final.groupby(['centro_operativo', 'pacote_id']).size().rename('contagem')
+                                counts_pacotes = gdf_alocados_final.groupby(['centro_operativo', 'pacote_id']).size().rename('contagem').reset_index()
                                 gdf_hulls_pacotes = gdf_hulls_pacotes.merge(counts_pacotes, on=['centro_operativo', 'pacote_id'])
                                 
                                 gdf_hulls_pacotes_proj = gdf_hulls_pacotes.to_crs("EPSG:3857")
@@ -413,11 +414,20 @@ if uploaded_file is not None:
                         else:
                             st.info("Nenhum pacote de trabalho para simular.")
 
-            with tabs[-1]: # Metodologia
+            with tabs[-1]:
                 st.subheader("As Metodologias por Trás da Análise")
-                st.markdown("""...""") # Seu texto de metodologia aqui
+                st.markdown("""
+                Esta ferramenta utiliza uma combinação de algoritmos geoespaciais e de aprendizado de máquina para fornecer insights sobre a distribuição de serviços.
+                - **Análise de Padrão (NNI - Índice do Vizinho Mais Próximo):** Mede se a distribuição geral dos pontos é agrupada, dispersa ou aleatória. É o primeiro indicador da "saúde" logística da carteira.
+                - **Detecção de Hotspots (DBSCAN):** É o coração da análise. O DBSCAN (Density-Based Spatial Clustering of Applications with Noise) é um algoritmo que agrupa pontos que estão densamente próximos, marcando como "ruído" (dispersos) os pontos que estão sozinhos. É ideal para encontrar "bolsões" de serviços sem precisar definir previamente o número de clusters.
+                - **Simulação de Pacotes (Ranking de Densidade):** A lógica de negócio para a roteirização prioriza a eficiência. Os hotspots identificados são transformados em "pacotes candidatos". Hotspots muito grandes são subdivididos em pacotes menores que respeitam a capacidade de produção de uma equipe. Todos os candidatos são então ranqueados pela sua densidade (serviços por km²), e os melhores são atribuídos às equipes disponíveis.
+                """)
                 st.subheader("Perguntas Frequentes (FAQ)")
-                st.markdown("""...""") # Seu texto de FAQ aqui
+                st.markdown("""
+                - **Por que alguns serviços ficam como "dispersos"?** Um serviço é considerado disperso (ou ruído) pelo DBSCAN se ele não tiver um número mínimo de vizinhos (`Mínimo de Pontos por Cluster`) dentro de um raio de busca (`Raio do Cluster`). Isso indica que ele está geograficamente isolado dos demais.
+                - **Como escolher os melhores parâmetros de cluster?** Não há um número mágico. Comece com os padrões (Raio: 1km, Mínimo de Pontos: 20). Se você perceber que muitos serviços que parecem próximos estão como "dispersos", tente aumentar o `Raio do Cluster`. Se clusters muito grandes estão sendo formados, tente diminuir o raio ou aumentar o `Mínimo de Pontos`.
+                - **O que significa um pacote excedente na simulação?** Significa que, após atribuir os pacotes mais densos e eficientes para todas as equipes disponíveis, ainda sobraram serviços. Eles podem ser serviços de hotspots de baixa prioridade (baixa densidade) ou serviços já classificados como dispersos.
+                """)
         else:
             st.warning("Nenhum dado para exibir com os filtros atuais.")
 else:
