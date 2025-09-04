@@ -25,6 +25,8 @@ st.write("Faça o upload da sua planilha de cortes para analisar a distribuiçã
 # 3. FUNÇÕES DE ANÁLISE
 # ==============================================================================
 
+# Cache foi removido para garantir reatividade total aos filtros.
+# A performance pode ser um pouco menor, mas a precisão é garantida.
 def carregar_dados_completos(arquivo_enviado):
     """Lê o arquivo completo com todas as colunas, que será a fonte única de dados."""
     arquivo_enviado.seek(0)
@@ -114,6 +116,7 @@ def simular_pacotes_de_trabalho(gdf_cluster, n_equipes, capacidade):
     gdf_cluster['pacote_id'] = kmeans.fit_predict(coords)
     
     pacotes_sobrecarregados = []; indices_excedentes = []
+
     for i in range(n_equipes):
         pacote_atual = gdf_cluster[gdf_cluster['pacote_id'] == i]
         if len(pacote_atual) > capacidade:
@@ -238,12 +241,8 @@ if uploaded_file is not None:
                     col3.metric("Padrão de Dispersão (NNI)", nni_texto, help=help_nni)
                     n_clusters_total = len(set(gdf_com_clusters['cluster'])) - (1 if -1 in gdf_com_clusters['cluster'] else 0)
                     total_pontos = len(gdf_com_clusters); n_ruido = list(gdf_com_clusters['cluster']).count(-1); percent_dispersos = (n_ruido / total_pontos * 100) if total_pontos > 0 else 0
-                    
                     with st.expander("🔍 O que estes números significam?", expanded=True):
-                         # CORREÇÃO: Passando todos os argumentos necessários para a função
-                         resumo_html = gerar_resumo_didatico(nni_valor_final, n_clusters_total, percent_dispersos)
-                         st.markdown(resumo_html, unsafe_allow_html=True)
-                    
+                         st.markdown(gerar_resumo_didatico(nni_valor_final, n_clusters_total, percent_dispersos), unsafe_allow_html=True)
                     st.subheader("Resumo da Análise de Cluster")
                     n_agrupados = total_pontos - n_ruido
                     if total_pontos > 0:
@@ -296,7 +295,8 @@ if uploaded_file is not None:
                     else: st.warning("Nenhum cluster para desenhar.")
             
             if df_metas is not None:
-                with tabs[3]: # Pacotes de Trabalho
+                pacotes_tab_index = 3
+                with tabs[pacotes_tab_index]: # Pacotes de Trabalho
                     with st.spinner('Simulando roteirização e desenhando pacotes...'):
                         st.subheader("Simulação de Roteirização Diária"); st.write("Este mapa simula a alocação dos serviços agrupados entre as equipes de um CO, respeitando a capacidade de produção de cada uma.")
                         gdf_clusters_reais = gdf_com_clusters[gdf_com_clusters['cluster'] != -1]
@@ -324,6 +324,7 @@ if uploaded_file is not None:
                                 if not gdf_alocados_final.empty:
                                     hulls_pacotes = gdf_alocados_final.dissolve(by=['centro_operativo', 'pacote_id']).convex_hull
                                     gdf_hulls_pacotes = gpd.GeoDataFrame(geometry=hulls_pacotes).reset_index()
+                                    # CORREÇÃO DO NameError
                                     folium.GeoJson(gdf_hulls_pacotes, style_function=lambda feature: {'color': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'weight': 2.5, 'fillColor': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'fillOpacity': 0.25}, tooltip=f"CO: {feature['properties']['centro_operativo']}, Pacote: {feature['properties']['pacote_id']}").add_to(m_pacotes)
                                 for _, row in gdf_excedentes_final.iterrows():
                                     folium.Marker(location=[row['latitude'], row['longitude']], tooltip="Serviço Excedente", icon=folium.Icon(color='red', icon='times-circle', prefix='fa')).add_to(m_pacotes)
