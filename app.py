@@ -12,9 +12,10 @@ import folium
 from streamlit_folium import st_folium
 from folium.plugins import MarkerCluster
 from shapely.geometry import Polygon
-import io  # Necessário para o download em Excel
+import io
 import os
-import glob # Para encontrar os arquivos KML e KMZ
+import glob
+import zipfile # Para ler arquivos .kmz
 
 # ==============================================================================
 # 2. CONFIGURAÇÃO DA PÁGINA E TÍTULOS
@@ -47,14 +48,23 @@ def carregar_kmls(pasta_projeto):
     
     for gis_file in all_gis_files:
         try:
-            # Deixa o geopandas detectar o driver (KML ou KMZ)
-            gdf_file = gpd.read_file(gis_file)
-            gdf_file = gdf_file[gdf_file.geometry.type.isin(['Polygon', 'MultiPolygon'])]
+            gdf_file = None
+            if gis_file.lower().endswith('.kml'):
+                gdf_file = gpd.read_file(gis_file, driver='KML')
+            elif gis_file.lower().endswith('.kmz'):
+                with zipfile.ZipFile(gis_file, 'r') as z:
+                    # Encontra o arquivo KML dentro do KMZ
+                    kml_filename = next((name for name in z.namelist() if name.lower().endswith('.kml')), None)
+                    if kml_filename:
+                        with z.open(kml_filename) as kml_content:
+                            gdf_file = gpd.read_file(kml_content, driver='KML')
             
-            if gdf_file.empty:
+            if gdf_file is None or gdf_file.empty:
                 debug_log.append({'Arquivo': os.path.basename(gis_file), 'Status': '⚠️ Aviso', 'Erro': 'Nenhum polígono encontrado.'})
                 continue
 
+            gdf_file = gdf_file[gdf_file.geometry.type.isin(['Polygon', 'MultiPolygon'])]
+            
             geometrias_corrigidas = []
             for poligono in gdf_file.geometry:
                 if not poligono.is_valid:
@@ -78,6 +88,7 @@ def carregar_kmls(pasta_projeto):
 
     geometria_unificada = gpd.GeoSeries(poligonos_validos).unary_union
     return geometria_unificada, pd.DataFrame(debug_log)
+
 
 def carregar_dados_completos(arquivo_enviado):
     """Lê o arquivo completo com todas as colunas, que será a fonte única de dados."""
@@ -235,7 +246,7 @@ if uploaded_file is not None:
         st.sidebar.success(f"{len(df_completo_original)} registros carregados!")
         
         kml_polygons, kml_debug_log = carregar_kmls('.')
-        if not kml_debug_log.empty:
+        if kml_debug_log is not None:
             sucesso_count = (kml_debug_log['Status'] == '✅ Sucesso').sum()
             st.sidebar.info(f"{sucesso_count} arquivo(s) KML/KMZ carregado(s) com sucesso.")
             with st.sidebar.expander("🔍 Depurador de Arquivos KML/KMZ"):
