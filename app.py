@@ -15,7 +15,7 @@ from shapely.geometry import Polygon
 import io
 import os
 import glob
-import zipfile # Para ler arquivos .kmz
+import zipfile
 
 # ==============================================================================
 # 2. CONFIGURAÇÃO DA PÁGINA E TÍTULOS
@@ -53,7 +53,6 @@ def carregar_kmls(pasta_projeto):
                 gdf_file = gpd.read_file(gis_file, driver='KML')
             elif gis_file.lower().endswith('.kmz'):
                 with zipfile.ZipFile(gis_file, 'r') as z:
-                    # Encontra o arquivo KML dentro do KMZ
                     kml_filename = next((name for name in z.namelist() if name.lower().endswith('.kml')), None)
                     if kml_filename:
                         with z.open(kml_filename) as kml_content:
@@ -231,6 +230,13 @@ def calcular_qualidade_carteira(row):
     elif total_servicos >= meta_diaria: return "⚠️ Atenção"
     else: return "❌ Crítica"
 
+def df_to_excel(df):
+    """Converte um DataFrame para um objeto BytesIO em formato Excel."""
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Dados')
+    return output.getvalue()
+
 # ==============================================================================
 # 4. LÓGICA PRINCIPAL DA APLICAÇÃO
 # ==============================================================================
@@ -318,30 +324,46 @@ if uploaded_file is not None:
             
             df_agrupados_download = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Agrupado'].drop(columns=['geometry', 'cluster'], errors='ignore')
             if not df_agrupados_download.empty:
-                csv_agrupados = df_agrupados_download.to_csv(index=False).encode('utf-8-sig')
-                st.sidebar.download_button(label="⬇️ Baixar Agrupados (CSV)", data=csv_agrupados, file_name='servicos_agrupados.csv', mime='text/csv')
+                st.sidebar.download_button(label="⬇️ Baixar Agrupados (Excel)", data=df_to_excel(df_agrupados_download), file_name='servicos_agrupados.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
             
             df_dispersos_download = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Disperso'].drop(columns=['geometry', 'cluster'], errors='ignore')
             if not df_dispersos_download.empty:
-                csv_dispersos = df_dispersos_download.to_csv(index=False).encode('utf-8-sig')
-                st.sidebar.download_button(label="⬇️ Baixar Dispersos (CSV)", data=csv_dispersos, file_name='servicos_dispersos.csv', mime='text/csv')
+                st.sidebar.download_button(label="⬇️ Baixar Dispersos (Excel)", data=df_to_excel(df_dispersos_download), file_name='servicos_dispersos.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
             if not gdf_risco.empty:
                 df_risco_download = gdf_risco.drop(columns=['geometry', 'cluster'], errors='ignore')
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    df_risco_download.to_excel(writer, index=False, sheet_name='Area_de_Risco')
-                excel_data = output.getvalue()
-                st.sidebar.download_button(
-                    label="⬇️ Baixar Área de Risco (Excel)",
-                    data=excel_data,
-                    file_name='servicos_area_risco.xlsx',
-                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                )
+                st.sidebar.download_button(label="⬇️ Baixar Área de Risco (Excel)", data=df_to_excel(df_risco_download), file_name='servicos_area_risco.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
             gdf_visualizacao = gdf_filtrado_base.copy()
             if tipo_visualizacao != "Todos":
                  gdf_visualizacao = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == tipo_visualizacao]
+
+            # --- LÓGICA DE SIMULAÇÃO MOVIDA PARA CIMA ---
+            gdf_alocados_final = gpd.GeoDataFrame()
+            gdf_excedentes_final = gpd.GeoDataFrame()
+            if df_metas is not None:
+                todos_alocados, todos_excedentes = [], []
+                gdf_para_pacotes = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Agrupado'].copy()
+                cos_filtrados = gdf_para_pacotes['centro_operativo'].unique() if not gdf_para_pacotes.empty else []
+                for co in cos_filtrados:
+                    gdf_co = gdf_para_pacotes[gdf_para_pacotes['centro_operativo'] == co].copy()
+                    metas_co = df_metas[df_metas['centro_operativo'].str.strip().str.upper() == co.strip().upper()]
+                    if not metas_co.empty:
+                        n_equipes = int(metas_co['equipes'].iloc[0])
+                        capacidade_designada = int(metas_co['serviços_designados'].iloc[0])
+                        if n_equipes > 0 and capacidade_designada > 0 and len(gdf_co) > 0:
+                            alocados, excedentes_co = simular_pacotes_por_densidade(gdf_co, n_equipes, capacidade_designada)
+                            todos_alocados.append(alocados)
+                            todos_excedentes.append(excedentes_co)
+                    else: 
+                        todos_excedentes.append(gdf_co)
+                
+                gdf_servicos_restantes = gdf_filtrado_base[gdf_filtrado_base['classificacao'] != 'Agrupado'].copy()
+                if not gdf_servicos_restantes.empty:
+                    todos_excedentes.append(gdf_servicos_restantes)
+                
+                gdf_alocados_final = pd.concat(todos_alocados, ignore_index=True) if todos_alocados else gpd.GeoDataFrame()
+                gdf_excedentes_final = pd.concat(todos_excedentes, ignore_index=True) if todos_excedentes else gpd.GeoDataFrame()
 
             lista_abas = ["🗺️ Análise Geográfica", "📊 Resumo por CO", "📍 Contorno dos Clusters"]
             if df_metas is not None: lista_abas.append("📦 Pacotes de Trabalho")
@@ -349,64 +371,52 @@ if uploaded_file is not None:
             tabs = st.tabs(lista_abas)
 
             with tabs[0]:
-                with st.spinner('Carregando análise e mapa...'):
-                    st.subheader("Resumo da Análise de Classificação")
-                    
-                    total_servicos = len(gdf_filtrado_base)
-                    n_agrupados = len(gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Agrupado'])
-                    n_dispersos = len(gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Disperso'])
-                    n_risco = len(gdf_risco)
-
-                    p_agrupados = (n_agrupados / total_servicos * 100) if total_servicos > 0 else 0
-                    p_dispersos = (n_dispersos / total_servicos * 100) if total_servicos > 0 else 0
-                    p_risco = (n_risco / total_servicos * 100) if total_servicos > 0 else 0
-                    
-                    col1, col2, col3 = st.columns(3)
-                    col1.metric("Nº Agrupados", f"{n_agrupados}", f"{p_agrupados:.1f}%")
-                    col2.metric("Nº Dispersos", f"{n_dispersos}", f"{p_dispersos:.1f}%")
-                    col3.metric("Nº em Área de Risco", f"{n_risco}", f"{p_risco:.1f}%")
-
-                    st.subheader(f"Mapa Interativo")
-                    st.write("Serviços em azul são Agrupados, cinza são Dispersos e vermelho estão em Área de Risco.")
-                    if not gdf_visualizacao.empty:
-                        map_center = [gdf_visualizacao.latitude.mean(), gdf_visualizacao.longitude.mean()]
-                        m = folium.Map(location=map_center, zoom_start=11)
-                        
-                        if kml_polygons is not None:
-                            folium.GeoJson(kml_polygons, style_function=lambda x: {'fillColor': 'red', 'color': 'red', 'weight': 2, 'fillOpacity': 0.1}, tooltip="Área de Risco / Ilha").add_to(m)
-
-                        for _, row in gdf_visualizacao.iterrows():
-                            cor_classificacao = {'Agrupado': 'blue', 'Disperso': 'gray', 'Área de Risco': 'red'}
-                            folium.CircleMarker(
-                                location=[row['latitude'], row['longitude']],
-                                radius=5,
-                                color=cor_classificacao.get(row['classificacao'], 'black'),
-                                fill=True,
-                                fill_color=cor_classificacao.get(row['classificacao'], 'black'),
-                                fill_opacity=0.7,
-                                popup=f"Classificação: {row['classificacao']}"
-                            ).add_to(m)
-                        st_folium(m, use_container_width=True, height=700)
-                    else:
-                        st.warning("Nenhum serviço para exibir no mapa com os filtros atuais.")
+                # ... (O conteúdo desta aba permanece o mesmo)
+                st.subheader("Resumo da Análise de Classificação")
+                total_servicos = len(gdf_filtrado_base)
+                n_agrupados = len(gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Agrupado'])
+                n_dispersos = len(gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Disperso'])
+                n_risco = len(gdf_risco)
+                p_agrupados = (n_agrupados / total_servicos * 100) if total_servicos > 0 else 0
+                p_dispersos = (n_dispersos / total_servicos * 100) if total_servicos > 0 else 0
+                p_risco = (n_risco / total_servicos * 100) if total_servicos > 0 else 0
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Nº Agrupados", f"{n_agrupados}", f"{p_agrupados:.1f}%")
+                col2.metric("Nº Dispersos", f"{n_dispersos}", f"{p_dispersos:.1f}%")
+                col3.metric("Nº em Área de Risco", f"{n_risco}", f"{p_risco:.1f}%")
+                st.subheader(f"Mapa Interativo")
+                st.write("Serviços em azul são Agrupados, cinza são Dispersos e vermelho estão em Área de Risco.")
+                if not gdf_visualizacao.empty:
+                    map_center = [gdf_visualizacao.latitude.mean(), gdf_visualizacao.longitude.mean()]
+                    m = folium.Map(location=map_center, zoom_start=11)
+                    if kml_polygons is not None:
+                        folium.GeoJson(kml_polygons, style_function=lambda x: {'fillColor': 'red', 'color': 'red', 'weight': 2, 'fillOpacity': 0.1}, tooltip="Área de Risco / Ilha").add_to(m)
+                    for _, row in gdf_visualizacao.iterrows():
+                        cor_classificacao = {'Agrupado': 'blue', 'Disperso': 'gray', 'Área de Risco': 'red'}
+                        folium.CircleMarker(location=[row['latitude'], row['longitude']], radius=5, color=cor_classificacao.get(row['classificacao'], 'black'), fill=True, fill_color=cor_classificacao.get(row['classificacao'], 'black'), fill_opacity=0.7, popup=f"Classificação: {row['classificacao']}").add_to(m)
+                    st_folium(m, use_container_width=True, height=700)
+                else:
+                    st.warning("Nenhum serviço para exibir no mapa com os filtros atuais.")
 
             with tabs[1]:
                 with st.spinner('Gerando tabela de resumo...'):
                     st.subheader("Resumo por Centro Operativo")
                     
                     resumo_co = gdf_filtrado_base.groupby('centro_operativo')['classificacao'].value_counts().unstack(fill_value=0)
-                    
                     for col in ['Agrupado', 'Disperso', 'Área de Risco']:
-                        if col not in resumo_co.columns:
-                            resumo_co[col] = 0
-                    
+                        if col not in resumo_co.columns: resumo_co[col] = 0
                     resumo_co['total'] = resumo_co['Agrupado'] + resumo_co['Disperso'] + resumo_co['Área de Risco']
-                    resumo_co['% Agrupado'] = (resumo_co['Agrupado'] / resumo_co['total'] * 100).round(1)
-                    resumo_co['% Disperso'] = (resumo_co['Disperso'] / resumo_co['total'] * 100).round(1)
-                    resumo_co['% Área de Risco'] = (resumo_co['Área de Risco'] / resumo_co['total'] * 100).round(1)
                     resumo_co.reset_index(inplace=True)
 
                     if df_metas is not None:
+                        # Adiciona dados de simulação ao resumo
+                        resumo_simulacao = gdf_alocados_final.groupby('centro_operativo').agg(
+                            Serviços_Alocados=('pacote_id', 'size'),
+                            Pacotes_Criados=('pacote_id', 'nunique')
+                        ).reset_index()
+                        resumo_co = pd.merge(resumo_co, resumo_simulacao, on='centro_operativo', how='left')
+                        
+                        # Junta com metas
                         resumo_co['centro_operativo_join_key'] = resumo_co['centro_operativo'].str.strip().str.upper()
                         df_metas['centro_operativo_join_key'] = df_metas['centro_operativo'].str.strip().str.upper()
                         resumo_co = pd.merge(resumo_co, df_metas, on='centro_operativo_join_key', how='left')
@@ -414,11 +424,16 @@ if uploaded_file is not None:
                         if 'centro_operativo_x' in resumo_co.columns:
                            resumo_co = resumo_co.drop(columns=['centro_operativo_y', 'centro_operativo_join_key']).rename(columns={'centro_operativo_x': 'centro_operativo'})
                         
+                        # Cálculos Finais
+                        resumo_co['Expectativa_Execução'] = resumo_co['equipes'] * resumo_co['produção']
+                        resumo_co['Aderência_à_Meta_%'] = (resumo_co['Serviços_Alocados'] / resumo_co['meta_diária'] * 100).fillna(0).round(1)
+                        resumo_co['Ocupação_das_Equipes_%'] = (resumo_co['Pacotes_Criados'] / resumo_co['equipes'] * 100).fillna(0).round(1)
                         resumo_co['qualidade_da_carteira'] = resumo_co.apply(calcular_qualidade_carteira, axis=1)
-                        cols_ordem = ['centro_operativo', 'total', 'Agrupado', '% Agrupado', 'Disperso', '% Disperso', 'Área de Risco', '% Área de Risco', 'qualidade_da_carteira']
+                        
+                        cols_ordem = ['centro_operativo', 'total', 'Agrupado', 'Disperso', 'Área de Risco', 'equipes', 'meta_diária', 'Expectativa_Execução', 'Serviços_Alocados', 'Pacotes_Criados', 'Aderência_à_Meta_%', 'Ocupação_das_Equipes_%', 'qualidade_da_carteira']
                         cols_existentes = [col for col in cols_ordem if col in resumo_co.columns]
-                        resumo_co = resumo_co[cols_existentes]
-
+                        resumo_co = resumo_co[cols_existentes].fillna(0)
+                    
                     st.dataframe(resumo_co, use_container_width=True)
 
             with tabs[2]:
@@ -433,7 +448,7 @@ if uploaded_file is not None:
                         if kml_polygons is not None:
                             folium.GeoJson(kml_polygons, style_function=lambda x: {'fillColor': 'red', 'color': 'red', 'weight': 2, 'fillOpacity': 0.1}).add_to(m_hull)
                         try:
-                            hulls = gdf_clusters_reais.dissolve(by='cluster', aggfunc={'centro_operativo': 'first'}).convex_hull
+                            hulls = gdf_clusters_reais.dissolve(by='cluster').convex_hull
                             gdf_hulls = gpd.GeoDataFrame(geometry=hulls).reset_index()
                             folium.GeoJson(gdf_hulls, style_function=lambda x: {'color': 'blue', 'weight': 2.5, 'fillColor': 'blue', 'fillOpacity': 0.2}, tooltip=folium.GeoJsonTooltip(fields=['cluster'], aliases=['Hotspot ID:'])).add_to(m_hull)
                             st_folium(m_hull, use_container_width=True, height=700)
@@ -445,111 +460,69 @@ if uploaded_file is not None:
             if df_metas is not None:
                 pacotes_tab_index = 3
                 with tabs[pacotes_tab_index]:
-                    with st.spinner('Simulando roteirização e desenhando pacotes...'):
+                    st.subheader("Painel de Simulação")
+                    cos_simulados = gdf_alocados_final['centro_operativo'].unique() if not gdf_alocados_final.empty else []
+                    metas_filtradas = df_metas[df_metas['centro_operativo'].isin(cos_simulados)]
+                    
+                    if not metas_filtradas.empty:
+                        equipes_disponiveis = metas_filtradas['equipes'].sum()
+                        meta_diaria_total = metas_filtradas['meta_diária'].sum()
+                        metas_filtradas['expectativa_execucao'] = metas_filtradas['equipes'] * metas_filtradas['produção']
+                        expectativa_total = metas_filtradas['expectativa_execucao'].sum()
                         
-                        todos_alocados = []
-                        todos_excedentes = []
-                        
-                        gdf_para_pacotes = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Agrupado'].copy()
-                        cos_filtrados = gdf_para_pacotes['centro_operativo'].unique() if not gdf_para_pacotes.empty else []
-                        
-                        for co in cos_filtrados:
-                            gdf_co = gdf_para_pacotes[gdf_para_pacotes['centro_operativo'] == co].copy()
-                            metas_co = df_metas[df_metas['centro_operativo'].str.strip().str.upper() == co.strip().upper()]
-                            
-                            if not metas_co.empty:
-                                n_equipes = int(metas_co['equipes'].iloc[0])
-                                capacidade_designada = int(metas_co['serviços_designados'].iloc[0])
-                                
-                                if n_equipes > 0 and capacidade_designada > 0 and len(gdf_co) > 0:
-                                    alocados, excedentes_co = simular_pacotes_por_densidade(gdf_co, n_equipes, capacidade_designada)
-                                    todos_alocados.append(alocados)
-                                    todos_excedentes.append(excedentes_co)
-                            else: 
-                                todos_excedentes.append(gdf_co)
-                        
-                        gdf_servicos_restantes = gdf_filtrado_base[gdf_filtrado_base['classificacao'] != 'Agrupado'].copy()
-                        if not gdf_servicos_restantes.empty:
-                            todos_excedentes.append(gdf_servicos_restantes)
+                        servicos_agrupados_para_pacotes = len(gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Agrupado'])
+                        servicos_alocados = len(gdf_alocados_final)
+                        pacotes_criados = gdf_alocados_final['pacote_id'].nunique() if not gdf_alocados_final.empty else 0
+                        servicos_excedentes = len(gdf_excedentes_final)
 
-                        gdf_alocados_final = pd.concat(todos_alocados, ignore_index=True) if todos_alocados else gpd.GeoDataFrame()
-                        gdf_excedentes_final = pd.concat(todos_excedentes, ignore_index=True) if todos_excedentes else gpd.GeoDataFrame()
-                        
+                        aderencia_meta = (servicos_alocados / meta_diaria_total * 100) if meta_diaria_total > 0 else 0
+                        ocupacao_equipes = (pacotes_criados / equipes_disponiveis * 100) if equipes_disponiveis > 0 else 0
+
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.markdown("##### Parâmetros de Planejamento")
+                            st.metric("Equipes Disponíveis", f"{int(equipes_disponiveis)}")
+                            st.metric("Meta Diária (CO)", f"{int(meta_diaria_total)}")
+                            st.metric("Expectativa de Execução", f"{int(expectativa_total)}")
+                        with col2:
+                            st.markdown("##### Resultado da Simulação")
+                            st.metric("Serviços Agrupados (Roteirizáveis)", f"{servicos_agrupados_para_pacotes}")
+                            st.metric("Serviços Alocados", f"{servicos_alocados}")
+                            st.metric("Pacotes Criados", f"{pacotes_criados}")
+                            st.metric("Serviços Excedentes", f"{servicos_excedentes}")
+                        with col3:
+                            st.markdown("##### Análise de Desempenho")
+                            st.metric("Aderência à Meta", f"{aderencia_meta:.1f}%")
+                            st.metric("Ocupação das Equipes", f"{ocupacao_equipes:.1f}%")
+                    
+                    st.markdown("---")
+                    
+                    if not gdf_filtrado_base.empty:
+                        map_center_pacotes = [gdf_filtrado_base.latitude.mean(), gdf_filtrado_base.longitude.mean()]
+                        m_pacotes = folium.Map(location=map_center_pacotes, zoom_start=10)
+                        cores_co = {co: color for co, color in zip(gdf_filtrado_base['centro_operativo'].unique(), ['blue', 'green', 'purple', 'orange', 'darkred', 'red', 'lightred', 'beige', 'darkblue', 'darkgreen', 'cadetblue', 'lightgreen', 'pink', 'lightblue', 'lightgray', 'black'])}
+                        if kml_polygons is not None:
+                            folium.GeoJson(kml_polygons, style_function=lambda x: {'fillColor': 'red', 'color': 'red', 'weight': 2, 'fillOpacity': 0.1}).add_to(m_pacotes)
+
                         if not gdf_alocados_final.empty:
-                            df_pacotes_download = gdf_alocados_final.drop(columns=['geometry', 'cluster'], errors='ignore')
-                            output = io.BytesIO()
-                            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                                df_pacotes_download.to_excel(writer, index=False, sheet_name='Pacotes_Alocados')
-                            excel_data = output.getvalue()
-                            st.sidebar.download_button(
-                                label="⬇️ Baixar Pacotes de Trabalho (Excel)",
-                                data=excel_data,
-                                file_name='pacotes_de_trabalho.xlsx',
-                                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                            )
-
-                        st.subheader("Painel de Simulação")
-                        metas_filtradas = df_metas[df_metas['centro_operativo'].isin(cos_filtrados)]
-                        
-                        if not metas_filtradas.empty:
-                            equipes_disponiveis = metas_filtradas['equipes'].sum()
-                            meta_diaria_total = metas_filtradas['meta_diária'].sum()
-                            metas_filtradas['expectativa_execucao'] = metas_filtradas['equipes'] * metas_filtradas['produção']
-                            expectativa_total = metas_filtradas['expectativa_execucao'].sum()
+                            gdf_hulls_pacotes = gdf_alocados_final.dissolve(by=['centro_operativo', 'pacote_id']).convex_hull.reset_index()
+                            gdf_hulls_pacotes = gdf_hulls_pacotes.rename(columns={0: 'geometry'}).set_geometry('geometry')
                             
-                            servicos_agrupados_para_pacotes = len(gdf_para_pacotes)
-                            servicos_alocados = len(gdf_alocados_final)
-                            pacotes_criados = gdf_alocados_final['pacote_id'].nunique() if not gdf_alocados_final.empty else 0
-                            servicos_excedentes = len(gdf_excedentes_final)
-
-                            aderencia_meta = (servicos_alocados / meta_diaria_total * 100) if meta_diaria_total > 0 else 0
-                            ocupacao_equipes = (pacotes_criados / equipes_disponiveis * 100) if equipes_disponiveis > 0 else 0
-
-                            col1, col2, col3 = st.columns(3)
-                            with col1:
-                                st.markdown("##### Parâmetros de Planejamento")
-                                st.metric("Equipes Disponíveis", f"{int(equipes_disponiveis)}")
-                                st.metric("Meta Diária (CO)", f"{int(meta_diaria_total)}")
-                                st.metric("Expectativa de Execução", f"{int(expectativa_total)}")
-                            with col2:
-                                st.markdown("##### Resultado da Simulação")
-                                st.metric("Serviços Agrupados (Roteirizáveis)", f"{servicos_agrupados_para_pacotes}")
-                                st.metric("Serviços Alocados", f"{servicos_alocados}")
-                                st.metric("Pacotes Criados", f"{pacotes_criados}")
-                                st.metric("Serviços Excedentes", f"{servicos_excedentes}")
-                            with col3:
-                                st.markdown("##### Análise de Desempenho")
-                                st.metric("Aderência à Meta", f"{aderencia_meta:.1f}%")
-                                st.metric("Ocupação das Equipes", f"{ocupacao_equipes:.1f}%")
-                        
-                        st.markdown("---")
-                        
-                        if not gdf_filtrado_base.empty:
-                            map_center_pacotes = [gdf_filtrado_base.latitude.mean(), gdf_filtrado_base.longitude.mean()]
-                            m_pacotes = folium.Map(location=map_center_pacotes, zoom_start=10)
-                            cores_co = {co: color for co, color in zip(gdf_filtrado_base['centro_operativo'].unique(), ['blue', 'green', 'purple', 'orange', 'darkred', 'red', 'lightred', 'beige', 'darkblue', 'darkgreen', 'cadetblue', 'lightgreen', 'pink', 'lightblue', 'lightgray', 'black'])}
-                            if kml_polygons is not None:
-                                folium.GeoJson(kml_polygons, style_function=lambda x: {'fillColor': 'red', 'color': 'red', 'weight': 2, 'fillOpacity': 0.1}).add_to(m_pacotes)
-
-                            if not gdf_alocados_final.empty:
-                                gdf_hulls_pacotes = gdf_alocados_final.dissolve(by=['centro_operativo', 'pacote_id']).convex_hull.reset_index()
-                                gdf_hulls_pacotes = gdf_hulls_pacotes.rename(columns={0: 'geometry'}).set_geometry('geometry')
-                                
-                                counts_pacotes = gdf_alocados_final.groupby(['centro_operativo', 'pacote_id']).size().rename('contagem').reset_index()
-                                gdf_hulls_pacotes = gdf_hulls_pacotes.merge(counts_pacotes, on=['centro_operativo', 'pacote_id'])
-                                
-                                gdf_hulls_pacotes_proj = gdf_hulls_pacotes.to_crs("EPSG:3857")
-                                gdf_hulls_pacotes['area_km2'] = (gdf_hulls_pacotes_proj.geometry.area / 1_000_000).round(2)
-                                
-                                folium.GeoJson(
-                                    gdf_hulls_pacotes,
-                                    style_function=lambda feature: {'color': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'weight': 2.5, 'fillColor': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'fillOpacity': 0.25},
-                                    tooltip=folium.GeoJsonTooltip(fields=['centro_operativo', 'pacote_id', 'contagem', 'area_km2'], aliases=['CO:', 'Pacote:', 'Nº de Serviços:', 'Área (km²):'], localize=True, sticky=True)
-                                ).add_to(m_pacotes)
+                            counts_pacotes = gdf_alocados_final.groupby(['centro_operativo', 'pacote_id']).size().rename('contagem').reset_index()
+                            gdf_hulls_pacotes = gdf_hulls_pacotes.merge(counts_pacotes, on=['centro_operativo', 'pacote_id'])
                             
-                            st_folium(m_pacotes, use_container_width=True, height=700)
-                        else:
-                            st.info("Nenhum pacote de trabalho para simular.")
+                            gdf_hulls_pacotes_proj = gdf_hulls_pacotes.to_crs("EPSG:3857")
+                            gdf_hulls_pacotes['area_km2'] = (gdf_hulls_pacotes_proj.geometry.area / 1_000_000).round(2)
+                            
+                            folium.GeoJson(
+                                gdf_hulls_pacotes,
+                                style_function=lambda feature: {'color': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'weight': 2.5, 'fillColor': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'fillOpacity': 0.25},
+                                tooltip=folium.GeoJsonTooltip(fields=['centro_operativo', 'pacote_id', 'contagem', 'area_km2'], aliases=['CO:', 'Pacote:', 'Nº de Serviços:', 'Área (km²):'], localize=True, sticky=True)
+                            ).add_to(m_pacotes)
+                        
+                        st_folium(m_pacotes, use_container_width=True, height=700)
+                    else:
+                        st.info("Nenhum pacote de trabalho para simular.")
             with tabs[-1]:
                 st.subheader("As Metodologias por Trás da Análise")
                 st.markdown("""
