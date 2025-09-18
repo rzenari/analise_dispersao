@@ -9,4 +9,5 @@ streamlit-folium
 h3
 requests
 openpyxl
+fiona
 
