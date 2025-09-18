@@ -62,14 +62,13 @@ def carregar_dados_metas(arquivo_metas):
     arquivo_metas.seek(0)
     try:
         df = pd.read_excel(arquivo_metas, engine='openpyxl')
-        df.columns = df.columns.str.lower().str.strip()
-        # Validação para garantir que as colunas essenciais para a simulação existam
-        required_cols = ['centro_operativo', 'equipes', 'serviços designados']
+        df.columns = df.columns.str.lower().str.strip().str.replace(' ', '_')
+        required_cols = ['centro_operativo', 'equipes', 'serviços_designados', 'produção', 'meta_diária']
         if all(col in df.columns for col in required_cols):
             df['centro_operativo'] = df['centro_operativo'].str.strip().str.upper()
             return df
         else:
-            st.error("ERRO: A planilha de metas precisa conter as colunas 'Centro_Operativo', 'Equipes' e 'Serviços designados'.")
+            st.error(f"ERRO: A planilha de metas precisa conter as colunas: {', '.join(required_cols)}.")
             return None
     except Exception as e:
         st.error(f"Não foi possível ler a planilha de metas. Erro: {e}")
@@ -315,9 +314,8 @@ if uploaded_file is not None:
                     resumo_co['% dispersos'] = (resumo_co['nº dispersos'] / resumo_co['total de serviços'] * 100).round(1)
                     if df_metas is not None:
                         resumo_co['centro_operativo_join_key'] = resumo_co['centro_operativo'].str.strip().str.upper()
-                        df_metas['centro_operativo_join_key'] = df_metas['centro_operativo'].str.strip().str.upper()
-                        
-                        df_metas_renamed = df_metas.rename(columns=lambda x: x.replace(' ', '_'))
+                        df_metas_renamed = df_metas.copy()
+                        df_metas_renamed['centro_operativo_join_key'] = df_metas_renamed['centro_operativo'].str.strip().str.upper()
                         resumo_co = pd.merge(resumo_co, df_metas_renamed, on='centro_operativo_join_key', how='left').drop(columns=['centro_operativo_y', 'centro_operativo_join_key']).rename(columns={'centro_operativo_x': 'centro_operativo'})
                         resumo_co['qualidade da carteira'] = resumo_co.apply(calcular_qualidade_carteira, axis=1)
                     st.dataframe(resumo_co, use_container_width=True)
@@ -352,19 +350,19 @@ if uploaded_file is not None:
                 pacotes_tab_index = 3
                 with tabs[pacotes_tab_index]:
                     with st.spinner('Simulando roteirização e desenhando pacotes...'):
-                        st.subheader("Simulação de Roteirização Diária")
-                        st.write("Este mapa simula a alocação dos serviços agrupados entre as equipes de um CO, respeitando a capacidade de produção de cada uma.")
                         
                         todos_alocados = []
                         todos_excedentes = []
-                        for co in gdf_com_clusters['centro_operativo'].unique():
+                        # Filtra apenas os COs presentes nos dados atuais
+                        cos_filtrados = gdf_com_clusters['centro_operativo'].unique()
+                        
+                        for co in cos_filtrados:
                             gdf_co = gdf_com_clusters[gdf_com_clusters['centro_operativo'] == co].copy()
                             metas_co = df_metas[df_metas['centro_operativo'].str.strip().str.upper() == co.strip().upper()]
                             
                             if not metas_co.empty:
                                 n_equipes = int(metas_co['equipes'].iloc[0])
-                                # ALTERAÇÃO: Usa a coluna "serviços designados" como a capacidade real
-                                capacidade_designada = int(metas_co['serviços designados'].iloc[0])
+                                capacidade_designada = int(metas_co['serviços_designados'].iloc[0])
                                 
                                 if n_equipes > 0 and capacidade_designada > 0 and len(gdf_co) > 0:
                                     alocados, excedentes = simular_pacotes_por_densidade(gdf_co, n_equipes, capacidade_designada)
@@ -376,6 +374,7 @@ if uploaded_file is not None:
                         gdf_alocados_final = pd.concat(todos_alocados) if todos_alocados else gpd.GeoDataFrame()
                         gdf_excedentes_final = pd.concat(todos_excedentes) if todos_excedentes else gpd.GeoDataFrame()
                         
+                        # Adiciona o botão de download dos pacotes na sidebar
                         if not gdf_alocados_final.empty:
                             df_pacotes_download = gdf_alocados_final.drop(columns=['geometry'])
                             output = io.BytesIO()
@@ -388,14 +387,50 @@ if uploaded_file is not None:
                                 file_name='pacotes_de_trabalho.xlsx',
                                 mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
                             )
-
-                        st.markdown("##### Performance da Carteira Agrupada")
-                        c1, c2, c3 = st.columns(3)
-                        total_servicos_analisados = len(gdf_alocados_final) + len(gdf_excedentes_final)
-                        c1.metric("Serviços na Análise", total_servicos_analisados)
-                        c2.metric("Serviços Alocados", len(gdf_alocados_final))
-                        c3.metric("Serviços Excedentes", len(gdf_excedentes_final), delta=f"-{len(gdf_excedentes_final)} não roteirizados", delta_color="inverse")
                         
+                        # --- INÍCIO DO NOVO PAINEL DE MÉTRICAS ---
+                        st.subheader("Painel de Simulação")
+
+                        metas_filtradas = df_metas[df_metas['centro_operativo'].isin(cos_filtrados)]
+                        
+                        if not metas_filtradas.empty:
+                            # Coluna 1: Planejamento
+                            equipes_disponiveis = metas_filtradas['equipes'].sum()
+                            meta_diaria_total = metas_filtradas['meta_diária'].sum()
+                            metas_filtradas['expectativa_execucao'] = metas_filtradas['equipes'] * metas_filtradas['produção']
+                            expectativa_total = metas_filtradas['expectativa_execucao'].sum()
+                            
+                            # Coluna 2: Resultado
+                            servicos_agrupados = len(gdf_com_clusters[gdf_com_clusters['cluster'] != -1])
+                            servicos_alocados = len(gdf_alocados_final)
+                            pacotes_criados = gdf_alocados_final['pacote_id'].nunique() if not gdf_alocados_final.empty else 0
+                            servicos_excedentes = len(gdf_excedentes_final)
+
+                            # Coluna 3: Desempenho
+                            aderencia_meta = (servicos_alocados / meta_diaria_total * 100) if meta_diaria_total > 0 else 0
+                            ocupacao_equipes = (pacotes_criados / equipes_disponiveis * 100) if equipes_disponiveis > 0 else 0
+
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.markdown("##### Parâmetros de Planejamento")
+                                st.metric("Equipes Disponíveis", f"{equipes_disponiveis}")
+                                st.metric("Meta Diária (CO)", f"{meta_diaria_total}")
+                                st.metric("Expectativa de Execução", f"{expectativa_total}")
+                            with col2:
+                                st.markdown("##### Resultado da Simulação")
+                                st.metric("Serviços Agrupados", f"{servicos_agrupados}")
+                                st.metric("Serviços Alocados", f"{servicos_alocados}")
+                                st.metric("Pacotes Criados", f"{pacotes_criados}")
+                                st.metric("Serviços Excedentes", f"{servicos_excedentes}")
+                            with col3:
+                                st.markdown("##### Análise de Desempenho")
+                                st.metric("Aderência à Meta", f"{aderencia_meta:.1f}%")
+                                st.metric("Ocupação das Equipes", f"{ocupacao_equipes:.1f}%")
+                        
+                        st.markdown("---") # Separador visual
+                        
+                        # --- FIM DO NOVO PAINEL DE MÉTRICAS ---
+
                         if not gdf_com_clusters.empty:
                             map_center_pacotes = [gdf_com_clusters.latitude.mean(), gdf_com_clusters.longitude.mean()]
                             m_pacotes = folium.Map(location=map_center_pacotes, zoom_start=10)
@@ -441,9 +476,10 @@ if uploaded_file is not None:
                 """)
                 st.subheader("Perguntas Frequentes (FAQ)")
                 st.markdown("""
-                - **Qual a diferença entre 'Produção' e 'Serviços Designados' na planilha de metas?**
-                  - **`Produção`** é a meta de serviços *executados com sucesso* que uma equipe deve atingir. É um indicador de performance.
-                  - **`Serviços Designados`** é a quantidade total de serviços que devem ser atribuídos a uma equipe para o dia. Este número é geralmente maior que a 'Produção' para compensar a **improdutividade** (ex: cliente ausente, endereço incorreto). A ferramenta usa os **'Serviços Designados'** para definir o tamanho máximo de um pacote de trabalho.
+                - **Qual a diferença entre as colunas da planilha de metas?**
+                  - **`Produção`**: É a meta de serviços *executados com sucesso* que uma equipe deve atingir. Junto com o nº de equipes, serve para calcular a "Expectativa de Execução".
+                  - **`Serviços Designados`**: É a quantidade total de serviços que devem ser atribuídos a uma equipe para o dia. Este número é geralmente maior que a 'Produção' para compensar a **improdutividade** (ex: cliente ausente, endereço incorreto). A ferramenta usa os **'Serviços Designados'** para definir o tamanho máximo de um pacote de trabalho.
+                  - **`Meta Diária`**: É a meta total do Centro Operativo. É usada para calcular a métrica de "Aderência à Meta".
 
                 - **Qual a estratégia usada para formar os pacotes de trabalho?**
                   - A ferramenta adota uma estratégia de **"Ranking de Densidade"**. Ela primeiro identifica todas as áreas de alta concentração de serviços (hotspots). Em seguida, calcula a densidade (serviços por km²) de cada uma e cria um ranking. Os pacotes de trabalho são atribuídos às equipes começando pelos hotspots mais densos, garantindo a máxima eficiência de deslocamento.
