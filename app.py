@@ -14,7 +14,7 @@ from folium.plugins import MarkerCluster
 from shapely.geometry import Polygon
 import io  # Necessário para o download em Excel
 import os
-import glob # Para encontrar os arquivos KML
+import glob # Para encontrar os arquivos KML e KMZ
 
 # ==============================================================================
 # 2. CONFIGURAÇÃO DA PÁGINA E TÍTULOS
@@ -31,28 +31,32 @@ st.write("Faça o upload da sua planilha de cortes para analisar a distribuiçã
 @st.cache_data
 def carregar_kmls(pasta_projeto):
     """
-    Varre a pasta do projeto, encontra todos os arquivos .kml,
+    Varre a pasta do projeto, encontra todos os arquivos .kml e .kmz,
     lê, tenta corrigir geometrias inválidas, unifica as válidas
     e retorna um log de depuração.
     """
     kml_files = glob.glob(os.path.join(pasta_projeto, '*.kml'))
-    if not kml_files:
-        return None, pd.DataFrame([{'Arquivo': 'Nenhum arquivo .kml encontrado', 'Status': 'N/A'}])
+    kmz_files = glob.glob(os.path.join(pasta_projeto, '*.kmz'))
+    all_gis_files = kml_files + kmz_files
+
+    if not all_gis_files:
+        return None, pd.DataFrame([{'Arquivo': 'Nenhum arquivo .kml ou .kmz encontrado', 'Status': 'N/A'}])
     
     debug_log = []
     poligonos_validos = []
     
-    for kml_file in kml_files:
+    for gis_file in all_gis_files:
         try:
-            gdf_kml = gpd.read_file(kml_file, driver='KML')
-            gdf_kml = gdf_kml[gdf_kml.geometry.type.isin(['Polygon', 'MultiPolygon'])]
+            # Deixa o geopandas detectar o driver (KML ou KMZ)
+            gdf_file = gpd.read_file(gis_file)
+            gdf_file = gdf_file[gdf_file.geometry.type.isin(['Polygon', 'MultiPolygon'])]
             
-            if gdf_kml.empty:
-                debug_log.append({'Arquivo': os.path.basename(kml_file), 'Status': '⚠️ Aviso', 'Erro': 'Nenhum polígono encontrado no arquivo.'})
+            if gdf_file.empty:
+                debug_log.append({'Arquivo': os.path.basename(gis_file), 'Status': '⚠️ Aviso', 'Erro': 'Nenhum polígono encontrado.'})
                 continue
 
             geometrias_corrigidas = []
-            for poligono in gdf_kml.geometry:
+            for poligono in gdf_file.geometry:
                 if not poligono.is_valid:
                     poligono_corrigido = poligono.buffer(0)
                     if poligono_corrigido.is_valid and not poligono_corrigido.is_empty:
@@ -62,12 +66,12 @@ def carregar_kmls(pasta_projeto):
             
             if geometrias_corrigidas:
                 poligonos_validos.extend(geometrias_corrigidas)
-                debug_log.append({'Arquivo': os.path.basename(kml_file), 'Status': '✅ Sucesso'})
+                debug_log.append({'Arquivo': os.path.basename(gis_file), 'Status': '✅ Sucesso'})
             else:
-                debug_log.append({'Arquivo': os.path.basename(kml_file), 'Status': '❌ Falha', 'Erro': 'Geometria inválida e não pôde ser corrigida.'})
+                debug_log.append({'Arquivo': os.path.basename(gis_file), 'Status': '❌ Falha', 'Erro': 'Geometria inválida, não foi possível corrigir.'})
 
         except Exception as e:
-            debug_log.append({'Arquivo': os.path.basename(kml_file), 'Status': '❌ Falha', 'Erro': str(e)})
+            debug_log.append({'Arquivo': os.path.basename(gis_file), 'Status': '❌ Falha', 'Erro': str(e)})
 
     if not poligonos_validos:
         return None, pd.DataFrame(debug_log)
@@ -233,8 +237,8 @@ if uploaded_file is not None:
         kml_polygons, kml_debug_log = carregar_kmls('.')
         if not kml_debug_log.empty:
             sucesso_count = (kml_debug_log['Status'] == '✅ Sucesso').sum()
-            st.sidebar.info(f"{sucesso_count} arquivo(s) KML carregado(s) com sucesso.")
-            with st.sidebar.expander("🔍 Depurador de Arquivos KML"):
+            st.sidebar.info(f"{sucesso_count} arquivo(s) KML/KMZ carregado(s) com sucesso.")
+            with st.sidebar.expander("🔍 Depurador de Arquivos KML/KMZ"):
                 st.dataframe(kml_debug_log)
         
         if df_metas is not None: 
@@ -537,7 +541,29 @@ if uploaded_file is not None:
                             st.info("Nenhum pacote de trabalho para simular.")
             with tabs[-1]:
                 st.subheader("As Metodologias por Trás da Análise")
-                st.markdown(""" (O conteúdo da metodologia será inserido aqui) """)
+                st.markdown("""
+                Esta ferramenta utiliza uma combinação de algoritmos geoespaciais e de aprendizado de máquina para fornecer insights sobre a distribuição de serviços.
+                - **Detecção de Áreas de Exceção (KML/KMZ):** O script primeiramente lê todos os arquivos `.kml` e `.kmz` da pasta do projeto para identificar polígonos de áreas de risco ou ilhas logísticas. Serviços dentro dessas áreas são classificados separadamente e excluídos da análise de clusterização.
+                - **Detecção de Hotspots (DBSCAN):** Nos serviços restantes, o DBSCAN (Density-Based Spatial Clustering of Applications with Noise) é usado para encontrar "hotspots" - áreas de alta concentração de serviços. Ele agrupa pontos densamente próximos e marca como "dispersos" os que estão isolados.
+                - **Simulação de Pacotes (Ranking de Densidade):** A lógica para criar pacotes de trabalho prioriza a eficiência. Os hotspots ("Agrupados") são transformados em "pacotes candidatos". Se um hotspot for muito grande para uma única equipe, ele é subdividido de forma inteligente. Todos os pacotes candidatos são então ranqueados pela sua densidade (serviços por km²), e os melhores são atribuídos às equipes disponíveis, respeitando o número de **Serviços Designados**.
+                """)
+                st.subheader("Perguntas Frequentes (FAQ)")
+                st.markdown("""
+                - **Qual a diferença entre as colunas da planilha de metas?**
+                  - **`Produção`**: É a meta de serviços *executados com sucesso* que uma equipe deve atingir. É usada para calcular a "Expectativa de Execução".
+                  - **`Serviços Designados`**: É a quantidade total de serviços que devem ser atribuídos a uma equipe para o dia. Este número é geralmente maior que a 'Produção' para compensar a **improdutividade** (ex: cliente ausente). A ferramenta usa os **'Serviços Designados'** para definir o tamanho máximo de um pacote de trabalho.
+                  - **`Meta Diária`**: É a meta total do Centro Operativo. É usada para calcular a métrica de "Aderência à Meta".
+
+                - **Qual a estratégia usada para formar os pacotes de trabalho?**
+                  - A ferramenta adota uma estratégia de **"Ranking de Densidade"**. Ela primeiro identifica todas as áreas de alta concentração de serviços (hotspots). Em seguida, calcula a densidade de cada uma e cria um ranking. Os pacotes de trabalho são atribuídos às equipes começando pelos hotspots mais densos, garantindo a máxima eficiência de deslocamento.
+
+                - **O que acontece se um 'hotspot' for muito grande para uma única equipe?**
+                  - Se um hotspot contém mais serviços do que o valor em 'Serviços Designados', a ferramenta aplica um método de **"descascamento" (peeling)**: ela "recorta" pacotes de tamanho perfeito de dentro do hotspot, um de cada vez, até que todos os serviços sejam alocados em pacotes que respeitem o limite da equipe.
+
+                - **Por que alguns serviços ficam como "dispersos"?** - Um serviço é considerado disperso se ele não estiver dentro de uma área de risco e não tiver um número mínimo de vizinhos (`Mínimo de Pontos por Cluster`) dentro de um raio de busca (`Raio do Cluster`).
+
+                - **O que significa um serviço "excedente" na simulação?** - São todos os serviços que não foram alocados em um pacote. Isso inclui os serviços **Dispersos**, os em **Área de Risco** e os **Agrupados** que não entraram no ranking dos melhores pacotes (seja por baixa densidade ou por falta de equipes disponíveis).
+                """)
         else:
             st.warning("Nenhum dado para exibir com os filtros atuais.")
 else:
