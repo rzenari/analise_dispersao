@@ -311,6 +311,32 @@ if uploaded_file is not None:
         gdf_filtrado_base['cluster'] = gdf_filtrado_base['cluster'].fillna(-1)
         gdf_filtrado_base.loc[gdf_filtrado_base['classificacao'] == 'A ser definido', 'classificacao'] = 'Disperso'
 
+        gdf_alocados_final = gpd.GeoDataFrame()
+        gdf_excedentes_final = gpd.GeoDataFrame()
+        if df_metas is not None:
+            todos_alocados, todos_excedentes = [], []
+            gdf_para_pacotes = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Agrupado'].copy()
+            cos_filtrados = gdf_para_pacotes['centro_operativo'].unique() if not gdf_para_pacotes.empty else []
+            for co in cos_filtrados:
+                gdf_co = gdf_para_pacotes[gdf_para_pacotes['centro_operativo'] == co].copy()
+                metas_co = df_metas[df_metas['centro_operativo'].str.strip().str.upper() == co.strip().upper()]
+                if not metas_co.empty:
+                    n_equipes = int(metas_co['equipes'].iloc[0])
+                    capacidade_designada = int(metas_co['serviços_designados'].iloc[0])
+                    if n_equipes > 0 and capacidade_designada > 0 and len(gdf_co) > 0:
+                        alocados, excedentes_co = simular_pacotes_por_densidade(gdf_co, n_equipes, capacidade_designada)
+                        todos_alocados.append(alocados)
+                        todos_excedentes.append(excedentes_co)
+                else: 
+                    todos_excedentes.append(gdf_co)
+            
+            gdf_servicos_restantes = gdf_filtrado_base[gdf_filtrado_base['classificacao'] != 'Agrupado'].copy()
+            if not gdf_servicos_restantes.empty:
+                todos_excedentes.append(gdf_servicos_restantes)
+            
+            gdf_alocados_final = pd.concat(todos_alocados, ignore_index=True) if todos_alocados else gpd.GeoDataFrame()
+            gdf_excedentes_final = pd.concat(todos_excedentes, ignore_index=True) if todos_excedentes else gpd.GeoDataFrame()
+        
         st.header("Resultados da Análise")
         
         if not gdf_filtrado_base.empty:
@@ -333,36 +359,19 @@ if uploaded_file is not None:
             if not gdf_risco.empty:
                 df_risco_download = gdf_risco.drop(columns=['geometry', 'cluster'], errors='ignore')
                 st.sidebar.download_button(label="⬇️ Baixar Área de Risco (Excel)", data=df_to_excel(df_risco_download), file_name='servicos_area_risco.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+            
+            if not gdf_alocados_final.empty:
+                df_pacotes_download = gdf_alocados_final.drop(columns=['geometry', 'cluster'], errors='ignore')
+                st.sidebar.download_button(
+                    label="⬇️ Baixar Pacotes de Trabalho (Excel)",
+                    data=df_to_excel(df_pacotes_download),
+                    file_name='pacotes_de_trabalho.xlsx',
+                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                )
 
             gdf_visualizacao = gdf_filtrado_base.copy()
             if tipo_visualizacao != "Todos":
                  gdf_visualizacao = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == tipo_visualizacao]
-
-            gdf_alocados_final = gpd.GeoDataFrame()
-            gdf_excedentes_final = gpd.GeoDataFrame()
-            if df_metas is not None:
-                todos_alocados, todos_excedentes = [], []
-                gdf_para_pacotes = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Agrupado'].copy()
-                cos_filtrados = gdf_para_pacotes['centro_operativo'].unique() if not gdf_para_pacotes.empty else []
-                for co in cos_filtrados:
-                    gdf_co = gdf_para_pacotes[gdf_para_pacotes['centro_operativo'] == co].copy()
-                    metas_co = df_metas[df_metas['centro_operativo'].str.strip().str.upper() == co.strip().upper()]
-                    if not metas_co.empty:
-                        n_equipes = int(metas_co['equipes'].iloc[0])
-                        capacidade_designada = int(metas_co['serviços_designados'].iloc[0])
-                        if n_equipes > 0 and capacidade_designada > 0 and len(gdf_co) > 0:
-                            alocados, excedentes_co = simular_pacotes_por_densidade(gdf_co, n_equipes, capacidade_designada)
-                            todos_alocados.append(alocados)
-                            todos_excedentes.append(excedentes_co)
-                    else: 
-                        todos_excedentes.append(gdf_co)
-                
-                gdf_servicos_restantes = gdf_filtrado_base[gdf_filtrado_base['classificacao'] != 'Agrupado'].copy()
-                if not gdf_servicos_restantes.empty:
-                    todos_excedentes.append(gdf_servicos_restantes)
-                
-                gdf_alocados_final = pd.concat(todos_alocados, ignore_index=True) if todos_alocados else gpd.GeoDataFrame()
-                gdf_excedentes_final = pd.concat(todos_excedentes, ignore_index=True) if todos_excedentes else gpd.GeoDataFrame()
 
             lista_abas = ["🗺️ Análise Geográfica", "📊 Resumo por CO", "📍 Contorno dos Clusters"]
             if df_metas is not None: lista_abas.append("📦 Pacotes de Trabalho")
@@ -405,10 +414,8 @@ if uploaded_file is not None:
                     st.subheader("Resumo por Centro Operativo")
                     
                     resumo_co = gdf_filtrado_base.groupby('centro_operativo')['classificacao'].value_counts().unstack(fill_value=0)
-                    
                     for col in ['Agrupado', 'Disperso', 'Área de Risco']:
                         if col not in resumo_co.columns: resumo_co[col] = 0
-                    
                     resumo_co['total'] = resumo_co['Agrupado'] + resumo_co['Disperso'] + resumo_co['Área de Risco']
                     resumo_co.reset_index(inplace=True)
 
@@ -519,8 +526,7 @@ if uploaded_file is not None:
                                 style_function=lambda feature: {'color': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'weight': 2.5, 'fillColor': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'fillOpacity': 0.25},
                                 tooltip=folium.GeoJsonTooltip(fields=['centro_operativo', 'pacote_id', 'contagem', 'area_km2'], aliases=['CO:', 'Pacote:', 'Nº de Serviços:', 'Área (km²):'], localize=True, sticky=True)
                             ).add_to(m_pacotes)
-
-                            # Adiciona os pontos individuais para clareza
+                            
                             for _, row in gdf_alocados_final.iterrows():
                                 folium.CircleMarker(
                                     location=[row['latitude'], row['longitude']],
@@ -540,7 +546,7 @@ if uploaded_file is not None:
                 Esta ferramenta utiliza uma combinação de algoritmos geoespaciais e de aprendizado de máquina para fornecer insights sobre a distribuição de serviços.
                 - **Detecção de Áreas de Exceção (KML/KMZ):** O script primeiramente lê todos os arquivos `.kml` e `.kmz` da pasta do projeto para identificar polígonos de áreas de risco ou ilhas logísticas. Serviços dentro dessas áreas são classificados separadamente e excluídos da análise de clusterização.
                 - **Detecção de Hotspots (DBSCAN):** Nos serviços restantes, o DBSCAN é usado para encontrar "hotspots" - áreas de alta concentração de serviços. Ele agrupa pontos densamente próximos e marca como "dispersos" os que estão isolados.
-                - **Simulação de Pacotes (Ranking de Densidade):** A lógica para criar pacotes de trabalho prioriza a eficiência. Os hotspots ("Agrupados") são transformados em "pacotes candidatos". Se um hotspot for muito grande, ele é subdividido de forma inteligente. Todos os candidatos são então ranqueados pela sua densidade (serviços por km²), e os melhores são atribuídos às equipes disponíveis, respeitando o número de **Serviços Designados**.
+                - **Simulação de Pacotes (Ranking de Densidade):** A lógica para criar pacotes de trabalho prioriza a eficiência. Os hotspots ("Agrupados") são transformados em "pacotes candidatos". Se um hotspot for muito grande para uma única equipe, ele é subdividido de forma inteligente. Todos os candidatos são então ranqueados pela sua densidade (serviços por km²), e os melhores são atribuídos às equipes disponíveis, respeitando o número de **Serviços Designados**.
                 """)
                 st.subheader("Perguntas Frequentes (FAQ)")
                 st.markdown("""
