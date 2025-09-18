@@ -32,43 +32,48 @@ st.write("Faça o upload da sua planilha de cortes para analisar a distribuiçã
 def carregar_kmls(pasta_projeto):
     """
     Varre a pasta do projeto, encontra todos os arquivos .kml,
-    lê, tenta corrigir geometrias inválidas e unifica tudo.
+    lê, tenta corrigir geometrias inválidas, unifica as válidas
+    e retorna um log de depuração.
     """
     kml_files = glob.glob(os.path.join(pasta_projeto, '*.kml'))
     if not kml_files:
-        return None, None
+        return None, pd.DataFrame([{'Arquivo': 'Nenhum arquivo .kml encontrado', 'Status': 'N/A'}])
     
-    todos_poligonos = []
-    try:
-        for kml_file in kml_files:
+    debug_log = []
+    poligonos_validos = []
+    
+    for kml_file in kml_files:
+        try:
             gdf_kml = gpd.read_file(kml_file, driver='KML')
             gdf_kml = gdf_kml[gdf_kml.geometry.type.isin(['Polygon', 'MultiPolygon'])]
-            todos_poligonos.extend(gdf_kml.geometry.tolist())
-        
-        if not todos_poligonos:
-            return None, kml_files
+            
+            if gdf_kml.empty:
+                debug_log.append({'Arquivo': os.path.basename(kml_file), 'Status': '⚠️ Aviso', 'Erro': 'Nenhum polígono encontrado no arquivo.'})
+                continue
 
-        # --- NOVA ROTINA DE CORREÇÃO DE GEOMETRIAS ---
-        poligonos_corrigidos = []
-        for poligono in todos_poligonos:
-            if not poligono.is_valid:
-                # O método .buffer(0) é um truque conhecido para tentar corrigir geometrias inválidas
-                poligono_corrigido = poligono.buffer(0)
-                if poligono_corrigido.is_valid and not poligono_corrigido.is_empty:
-                    poligonos_corrigidos.append(poligono_corrigido)
+            geometrias_corrigidas = []
+            for poligono in gdf_kml.geometry:
+                if not poligono.is_valid:
+                    poligono_corrigido = poligono.buffer(0)
+                    if poligono_corrigido.is_valid and not poligono_corrigido.is_empty:
+                        geometrias_corrigidas.append(poligono_corrigido)
+                else:
+                    geometrias_corrigidas.append(poligono)
+            
+            if geometrias_corrigidas:
+                poligonos_validos.extend(geometrias_corrigidas)
+                debug_log.append({'Arquivo': os.path.basename(kml_file), 'Status': '✅ Sucesso'})
             else:
-                poligonos_corrigidos.append(poligono)
+                debug_log.append({'Arquivo': os.path.basename(kml_file), 'Status': '❌ Falha', 'Erro': 'Geometria inválida e não pôde ser corrigida.'})
 
-        if not poligonos_corrigidos:
-            st.warning("Aviso: Foram encontradas geometrias nos arquivos KML, mas nenhuma pôde ser validada ou corrigida.")
-            return None, kml_files
+        except Exception as e:
+            debug_log.append({'Arquivo': os.path.basename(kml_file), 'Status': '❌ Falha', 'Erro': str(e)})
 
-        geometria_unificada = gpd.GeoSeries(poligonos_corrigidos).unary_union
-        return geometria_unificada, kml_files
-        
-    except Exception as e:
-        st.warning(f"Atenção: Não foi possível ler os arquivos KML. Erro: {e}. A análise continuará sem a classificação de área de risco.")
-        return None, None
+    if not poligonos_validos:
+        return None, pd.DataFrame(debug_log)
+
+    geometria_unificada = gpd.GeoSeries(poligonos_validos).unary_union
+    return geometria_unificada, pd.DataFrame(debug_log)
 
 def carregar_dados_completos(arquivo_enviado):
     """Lê o arquivo completo com todas as colunas, que será a fonte única de dados."""
@@ -143,7 +148,7 @@ def simular_pacotes_por_densidade(gdf_co, n_equipes, capacidade_designada):
     pacotes_candidatos = []
     
     for cluster_id in gdf_clusters_reais['cluster'].unique():
-        if cluster_id == -1: continue # Ignora os dispersos na formação de pacotes
+        if cluster_id == -1: continue
         gdf_cluster_atual = gdf_clusters_reais[gdf_clusters_reais['cluster'] == cluster_id]
         contagem = len(gdf_cluster_atual)
 
@@ -176,8 +181,7 @@ def simular_pacotes_por_densidade(gdf_co, n_equipes, capacidade_designada):
         if contagem > 0:
             try:
                 hull = pontos.unary_union.convex_hull
-                gdf_hull = gpd.GeoDataFrame(geometry=[hull], crs="EPSG:4326")
-                area_km2 = (gdf_hull.to_crs("EPSG:3857").geometry.area / 1_000_000).iloc[0]
+                area_km2 = (gpd.GeoDataFrame(geometry=[hull], crs="EPSG:4326").to_crs("EPSG:3857").geometry.area / 1_000_000).iloc[0]
                 densidade = contagem / area_km2 if area_km2 > 0 else 0
                 
                 candidato['contagem'] = contagem
@@ -226,9 +230,12 @@ if uploaded_file is not None:
     if df_completo_original is not None:
         st.sidebar.success(f"{len(df_completo_original)} registros carregados!")
         
-        kml_polygons, kml_files_found = carregar_kmls('.')
-        if kml_files_found:
-            st.sidebar.info(f"{len(kml_files_found)} arquivo(s) KML de áreas de exceção carregado(s).")
+        kml_polygons, kml_debug_log = carregar_kmls('.')
+        if not kml_debug_log.empty:
+            sucesso_count = (kml_debug_log['Status'] == '✅ Sucesso').sum()
+            st.sidebar.info(f"{sucesso_count} arquivo(s) KML carregado(s) com sucesso.")
+            with st.sidebar.expander("🔍 Depurador de Arquivos KML"):
+                st.dataframe(kml_debug_log)
         
         if df_metas is not None: 
             st.sidebar.info(f"Metas carregadas para {len(df_metas)} COs.")
@@ -261,7 +268,7 @@ if uploaded_file is not None:
         gdf_filtrado_base['classificacao'] = 'A ser definido'
         gdf_risco = gpd.GeoDataFrame()
 
-        if kml_polygons:
+        if kml_polygons is not None:
             indices_risco = gdf_filtrado_base.within(kml_polygons)
             gdf_filtrado_base.loc[indices_risco, 'classificacao'] = 'Área de Risco'
             gdf_risco = gdf_filtrado_base[indices_risco].copy()
@@ -350,7 +357,7 @@ if uploaded_file is not None:
                         map_center = [gdf_visualizacao.latitude.mean(), gdf_visualizacao.longitude.mean()]
                         m = folium.Map(location=map_center, zoom_start=11)
                         
-                        if kml_polygons:
+                        if kml_polygons is not None:
                             folium.GeoJson(kml_polygons, style_function=lambda x: {'fillColor': 'red', 'color': 'red', 'weight': 2, 'fillOpacity': 0.1}, tooltip="Área de Risco / Ilha").add_to(m)
 
                         for _, row in gdf_visualizacao.iterrows():
@@ -408,7 +415,7 @@ if uploaded_file is not None:
                     if not gdf_clusters_reais.empty:
                         map_center_hull = [gdf_clusters_reais.latitude.mean(), gdf_clusters_reais.longitude.mean()]
                         m_hull = folium.Map(location=map_center_hull, zoom_start=11)
-                        if kml_polygons:
+                        if kml_polygons is not None:
                             folium.GeoJson(kml_polygons, style_function=lambda x: {'fillColor': 'red', 'color': 'red', 'weight': 2, 'fillOpacity': 0.1}).add_to(m_hull)
                         try:
                             hulls = gdf_clusters_reais.dissolve(by='cluster', aggfunc={'centro_operativo': 'first'}).convex_hull
@@ -429,7 +436,7 @@ if uploaded_file is not None:
                         todos_excedentes = []
                         
                         gdf_para_pacotes = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Agrupado'].copy()
-                        cos_filtrados = gdf_para_pacotes['centro_operativo'].unique()
+                        cos_filtrados = gdf_para_pacotes['centro_operativo'].unique() if not gdf_para_pacotes.empty else []
                         
                         for co in cos_filtrados:
                             gdf_co = gdf_para_pacotes[gdf_para_pacotes['centro_operativo'] == co].copy()
@@ -506,7 +513,7 @@ if uploaded_file is not None:
                             map_center_pacotes = [gdf_filtrado_base.latitude.mean(), gdf_filtrado_base.longitude.mean()]
                             m_pacotes = folium.Map(location=map_center_pacotes, zoom_start=10)
                             cores_co = {co: color for co, color in zip(gdf_filtrado_base['centro_operativo'].unique(), ['blue', 'green', 'purple', 'orange', 'darkred', 'red', 'lightred', 'beige', 'darkblue', 'darkgreen', 'cadetblue', 'lightgreen', 'pink', 'lightblue', 'lightgray', 'black'])}
-                            if kml_polygons:
+                            if kml_polygons is not None:
                                 folium.GeoJson(kml_polygons, style_function=lambda x: {'fillColor': 'red', 'color': 'red', 'weight': 2, 'fillOpacity': 0.1}).add_to(m_pacotes)
 
                             if not gdf_alocados_final.empty:
