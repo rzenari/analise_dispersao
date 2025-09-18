@@ -338,7 +338,6 @@ if uploaded_file is not None:
             if tipo_visualizacao != "Todos":
                  gdf_visualizacao = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == tipo_visualizacao]
 
-            # --- LÓGICA DE SIMULAÇÃO MOVIDA PARA CIMA ---
             gdf_alocados_final = gpd.GeoDataFrame()
             gdf_excedentes_final = gpd.GeoDataFrame()
             if df_metas is not None:
@@ -371,52 +370,55 @@ if uploaded_file is not None:
             tabs = st.tabs(lista_abas)
 
             with tabs[0]:
-                # ... (O conteúdo desta aba permanece o mesmo)
-                st.subheader("Resumo da Análise de Classificação")
-                total_servicos = len(gdf_filtrado_base)
-                n_agrupados = len(gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Agrupado'])
-                n_dispersos = len(gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Disperso'])
-                n_risco = len(gdf_risco)
-                p_agrupados = (n_agrupados / total_servicos * 100) if total_servicos > 0 else 0
-                p_dispersos = (n_dispersos / total_servicos * 100) if total_servicos > 0 else 0
-                p_risco = (n_risco / total_servicos * 100) if total_servicos > 0 else 0
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Nº Agrupados", f"{n_agrupados}", f"{p_agrupados:.1f}%")
-                col2.metric("Nº Dispersos", f"{n_dispersos}", f"{p_dispersos:.1f}%")
-                col3.metric("Nº em Área de Risco", f"{n_risco}", f"{p_risco:.1f}%")
-                st.subheader(f"Mapa Interativo")
-                st.write("Serviços em azul são Agrupados, cinza são Dispersos e vermelho estão em Área de Risco.")
-                if not gdf_visualizacao.empty:
-                    map_center = [gdf_visualizacao.latitude.mean(), gdf_visualizacao.longitude.mean()]
-                    m = folium.Map(location=map_center, zoom_start=11)
-                    if kml_polygons is not None:
-                        folium.GeoJson(kml_polygons, style_function=lambda x: {'fillColor': 'red', 'color': 'red', 'weight': 2, 'fillOpacity': 0.1}, tooltip="Área de Risco / Ilha").add_to(m)
-                    for _, row in gdf_visualizacao.iterrows():
-                        cor_classificacao = {'Agrupado': 'blue', 'Disperso': 'gray', 'Área de Risco': 'red'}
-                        folium.CircleMarker(location=[row['latitude'], row['longitude']], radius=5, color=cor_classificacao.get(row['classificacao'], 'black'), fill=True, fill_color=cor_classificacao.get(row['classificacao'], 'black'), fill_opacity=0.7, popup=f"Classificação: {row['classificacao']}").add_to(m)
-                    st_folium(m, use_container_width=True, height=700)
-                else:
-                    st.warning("Nenhum serviço para exibir no mapa com os filtros atuais.")
+                with st.spinner('Carregando análise e mapa...'):
+                    st.subheader("Resumo da Análise de Classificação")
+                    
+                    total_servicos = len(gdf_filtrado_base)
+                    n_agrupados = len(gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Agrupado'])
+                    n_dispersos = len(gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Disperso'])
+                    n_risco = len(gdf_risco)
+                    p_agrupados = (n_agrupados / total_servicos * 100) if total_servicos > 0 else 0
+                    p_dispersos = (n_dispersos / total_servicos * 100) if total_servicos > 0 else 0
+                    p_risco = (n_risco / total_servicos * 100) if total_servicos > 0 else 0
+                    
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("Nº Agrupados", f"{n_agrupados}", f"{p_agrupados:.1f}%")
+                    col2.metric("Nº Dispersos", f"{n_dispersos}", f"{p_dispersos:.1f}%")
+                    col3.metric("Nº em Área de Risco", f"{n_risco}", f"{p_risco:.1f}%")
+
+                    st.subheader(f"Mapa Interativo")
+                    st.write("Serviços em azul são Agrupados, cinza são Dispersos e vermelho estão em Área de Risco.")
+                    if not gdf_visualizacao.empty:
+                        map_center = [gdf_visualizacao.latitude.mean(), gdf_visualizacao.longitude.mean()]
+                        m = folium.Map(location=map_center, zoom_start=11)
+                        if kml_polygons is not None:
+                            folium.GeoJson(kml_polygons, style_function=lambda x: {'fillColor': 'red', 'color': 'red', 'weight': 2, 'fillOpacity': 0.1}, tooltip="Área de Risco / Ilha").add_to(m)
+                        for _, row in gdf_visualizacao.iterrows():
+                            cor_classificacao = {'Agrupado': 'blue', 'Disperso': 'gray', 'Área de Risco': 'red'}
+                            folium.CircleMarker(location=[row['latitude'], row['longitude']], radius=5, color=cor_classificacao.get(row['classificacao'], 'black'), fill=True, fill_color=cor_classificacao.get(row['classificacao'], 'black'), fill_opacity=0.7, popup=f"Classificação: {row['classificacao']}").add_to(m)
+                        st_folium(m, use_container_width=True, height=700)
+                    else:
+                        st.warning("Nenhum serviço para exibir no mapa com os filtros atuais.")
 
             with tabs[1]:
                 with st.spinner('Gerando tabela de resumo...'):
                     st.subheader("Resumo por Centro Operativo")
                     
                     resumo_co = gdf_filtrado_base.groupby('centro_operativo')['classificacao'].value_counts().unstack(fill_value=0)
+                    
                     for col in ['Agrupado', 'Disperso', 'Área de Risco']:
                         if col not in resumo_co.columns: resumo_co[col] = 0
+                    
                     resumo_co['total'] = resumo_co['Agrupado'] + resumo_co['Disperso'] + resumo_co['Área de Risco']
                     resumo_co.reset_index(inplace=True)
 
                     if df_metas is not None:
-                        # Adiciona dados de simulação ao resumo
                         resumo_simulacao = gdf_alocados_final.groupby('centro_operativo').agg(
                             Serviços_Alocados=('pacote_id', 'size'),
                             Pacotes_Criados=('pacote_id', 'nunique')
                         ).reset_index()
                         resumo_co = pd.merge(resumo_co, resumo_simulacao, on='centro_operativo', how='left')
                         
-                        # Junta com metas
                         resumo_co['centro_operativo_join_key'] = resumo_co['centro_operativo'].str.strip().str.upper()
                         df_metas['centro_operativo_join_key'] = df_metas['centro_operativo'].str.strip().str.upper()
                         resumo_co = pd.merge(resumo_co, df_metas, on='centro_operativo_join_key', how='left')
@@ -424,16 +426,14 @@ if uploaded_file is not None:
                         if 'centro_operativo_x' in resumo_co.columns:
                            resumo_co = resumo_co.drop(columns=['centro_operativo_y', 'centro_operativo_join_key']).rename(columns={'centro_operativo_x': 'centro_operativo'})
                         
-                        # Cálculos Finais
                         resumo_co['Expectativa_Execução'] = resumo_co['equipes'] * resumo_co['produção']
                         resumo_co['Aderência_à_Meta_%'] = (resumo_co['Serviços_Alocados'] / resumo_co['meta_diária'] * 100).fillna(0).round(1)
                         resumo_co['Ocupação_das_Equipes_%'] = (resumo_co['Pacotes_Criados'] / resumo_co['equipes'] * 100).fillna(0).round(1)
                         resumo_co['qualidade_da_carteira'] = resumo_co.apply(calcular_qualidade_carteira, axis=1)
                         
                         cols_ordem = ['centro_operativo', 'total', 'Agrupado', 'Disperso', 'Área de Risco', 'equipes', 'meta_diária', 'Expectativa_Execução', 'Serviços_Alocados', 'Pacotes_Criados', 'Aderência_à_Meta_%', 'Ocupação_das_Equipes_%', 'qualidade_da_carteira']
-                        cols_existentes = [col for col in cols_ordem if col in resumo_co.columns]
-                        resumo_co = resumo_co[cols_existentes].fillna(0)
-                    
+                        resumo_co = resumo_co[cols_ordem].fillna(0)
+
                     st.dataframe(resumo_co, use_container_width=True)
 
             with tabs[2]:
@@ -460,10 +460,10 @@ if uploaded_file is not None:
             if df_metas is not None:
                 pacotes_tab_index = 3
                 with tabs[pacotes_tab_index]:
-                    st.subheader("Painel de Simulação")
                     cos_simulados = gdf_alocados_final['centro_operativo'].unique() if not gdf_alocados_final.empty else []
                     metas_filtradas = df_metas[df_metas['centro_operativo'].isin(cos_simulados)]
                     
+                    st.subheader("Painel de Simulação")
                     if not metas_filtradas.empty:
                         equipes_disponiveis = metas_filtradas['equipes'].sum()
                         meta_diaria_total = metas_filtradas['meta_diária'].sum()
@@ -519,6 +519,17 @@ if uploaded_file is not None:
                                 style_function=lambda feature: {'color': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'weight': 2.5, 'fillColor': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'fillOpacity': 0.25},
                                 tooltip=folium.GeoJsonTooltip(fields=['centro_operativo', 'pacote_id', 'contagem', 'area_km2'], aliases=['CO:', 'Pacote:', 'Nº de Serviços:', 'Área (km²):'], localize=True, sticky=True)
                             ).add_to(m_pacotes)
+
+                            # Adiciona os pontos individuais para clareza
+                            for _, row in gdf_alocados_final.iterrows():
+                                folium.CircleMarker(
+                                    location=[row['latitude'], row['longitude']],
+                                    radius=3,
+                                    color=cores_co.get(row['centro_operativo'], 'gray'),
+                                    fill=True,
+                                    fill_opacity=1,
+                                    popup=f"Pacote: {row['pacote_id']}"
+                                ).add_to(m_pacotes)
                         
                         st_folium(m_pacotes, use_container_width=True, height=700)
                     else:
@@ -528,8 +539,8 @@ if uploaded_file is not None:
                 st.markdown("""
                 Esta ferramenta utiliza uma combinação de algoritmos geoespaciais e de aprendizado de máquina para fornecer insights sobre a distribuição de serviços.
                 - **Detecção de Áreas de Exceção (KML/KMZ):** O script primeiramente lê todos os arquivos `.kml` e `.kmz` da pasta do projeto para identificar polígonos de áreas de risco ou ilhas logísticas. Serviços dentro dessas áreas são classificados separadamente e excluídos da análise de clusterização.
-                - **Detecção de Hotspots (DBSCAN):** Nos serviços restantes, o DBSCAN (Density-Based Spatial Clustering of Applications with Noise) é usado para encontrar "hotspots" - áreas de alta concentração de serviços. Ele agrupa pontos densamente próximos e marca como "dispersos" os que estão isolados.
-                - **Simulação de Pacotes (Ranking de Densidade):** A lógica para criar pacotes de trabalho prioriza a eficiência. Os hotspots ("Agrupados") são transformados em "pacotes candidatos". Se um hotspot for muito grande para uma única equipe, ele é subdividido de forma inteligente. Todos os pacotes candidatos são então ranqueados pela sua densidade (serviços por km²), e os melhores são atribuídos às equipes disponíveis, respeitando o número de **Serviços Designados**.
+                - **Detecção de Hotspots (DBSCAN):** Nos serviços restantes, o DBSCAN é usado para encontrar "hotspots" - áreas de alta concentração de serviços. Ele agrupa pontos densamente próximos e marca como "dispersos" os que estão isolados.
+                - **Simulação de Pacotes (Ranking de Densidade):** A lógica para criar pacotes de trabalho prioriza a eficiência. Os hotspots ("Agrupados") são transformados em "pacotes candidatos". Se um hotspot for muito grande, ele é subdividido de forma inteligente. Todos os candidatos são então ranqueados pela sua densidade (serviços por km²), e os melhores são atribuídos às equipes disponíveis, respeitando o número de **Serviços Designados**.
                 """)
                 st.subheader("Perguntas Frequentes (FAQ)")
                 st.markdown("""
@@ -539,7 +550,7 @@ if uploaded_file is not None:
                   - **`Meta Diária`**: É a meta total do Centro Operativo. É usada para calcular a métrica de "Aderência à Meta".
 
                 - **Qual a estratégia usada para formar os pacotes de trabalho?**
-                  - A ferramenta adota uma estratégia de **"Ranking de Densidade"**. Ela primeiro identifica todas as áreas de alta concentração de serviços (hotspots). Em seguida, calcula a densidade de cada uma e cria um ranking. Os pacotes de trabalho são atribuídos às equipes começando pelos hotspots mais densos, garantindo a máxima eficiência de deslocamento.
+                  - A ferramenta adota uma estratégia de **"Ranking de Densidade"**. Ela primeiro identifica todas as áreas de alta concentração de serviços (hotspots). Em seguida, calcula a densidade de cada uma e cria um ranking. Os pacotes são atribuídos às equipes começando pelos hotspots mais densos, garantindo a máxima eficiência de deslocamento.
 
                 - **O que acontece se um 'hotspot' for muito grande para uma única equipe?**
                   - Se um hotspot contém mais serviços do que o valor em 'Serviços Designados', a ferramenta aplica um método de **"descascamento" (peeling)**: ela "recorta" pacotes de tamanho perfeito de dentro do hotspot, um de cada vez, até que todos os serviços sejam alocados em pacotes que respeitem o limite da equipe.
