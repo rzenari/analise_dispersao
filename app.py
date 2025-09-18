@@ -32,7 +32,7 @@ st.write("Faça o upload da sua planilha de cortes para analisar a distribuiçã
 def carregar_kmls(pasta_projeto):
     """
     Varre a pasta do projeto, encontra todos os arquivos .kml,
-    lê e unifica todas as geometrias de polígonos em uma única geometria.
+    lê, tenta corrigir geometrias inválidas e unifica tudo.
     """
     kml_files = glob.glob(os.path.join(pasta_projeto, '*.kml'))
     if not kml_files:
@@ -40,7 +40,6 @@ def carregar_kmls(pasta_projeto):
     
     todos_poligonos = []
     try:
-        # A linha que causava o erro foi removida. Geopandas com fiona instalado lê KML diretamente.
         for kml_file in kml_files:
             gdf_kml = gpd.read_file(kml_file, driver='KML')
             gdf_kml = gdf_kml[gdf_kml.geometry.type.isin(['Polygon', 'MultiPolygon'])]
@@ -49,8 +48,24 @@ def carregar_kmls(pasta_projeto):
         if not todos_poligonos:
             return None, kml_files
 
-        geometria_unificada = gpd.GeoSeries(todos_poligonos).unary_union
+        # --- NOVA ROTINA DE CORREÇÃO DE GEOMETRIAS ---
+        poligonos_corrigidos = []
+        for poligono in todos_poligonos:
+            if not poligono.is_valid:
+                # O método .buffer(0) é um truque conhecido para tentar corrigir geometrias inválidas
+                poligono_corrigido = poligono.buffer(0)
+                if poligono_corrigido.is_valid and not poligono_corrigido.is_empty:
+                    poligonos_corrigidos.append(poligono_corrigido)
+            else:
+                poligonos_corrigidos.append(poligono)
+
+        if not poligonos_corrigidos:
+            st.warning("Aviso: Foram encontradas geometrias nos arquivos KML, mas nenhuma pôde ser validada ou corrigida.")
+            return None, kml_files
+
+        geometria_unificada = gpd.GeoSeries(poligonos_corrigidos).unary_union
         return geometria_unificada, kml_files
+        
     except Exception as e:
         st.warning(f"Atenção: Não foi possível ler os arquivos KML. Erro: {e}. A análise continuará sem a classificação de área de risco.")
         return None, None
@@ -128,6 +143,7 @@ def simular_pacotes_por_densidade(gdf_co, n_equipes, capacidade_designada):
     pacotes_candidatos = []
     
     for cluster_id in gdf_clusters_reais['cluster'].unique():
+        if cluster_id == -1: continue # Ignora os dispersos na formação de pacotes
         gdf_cluster_atual = gdf_clusters_reais[gdf_clusters_reais['cluster'] == cluster_id]
         contagem = len(gdf_cluster_atual)
 
