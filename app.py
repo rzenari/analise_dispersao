@@ -40,11 +40,9 @@ def carregar_kmls(pasta_projeto):
     
     todos_poligonos = []
     try:
-        # Habilitar o driver KML do fiona, que o geopandas usa por baixo dos panos
         gpd.io.file.fiona.drvsupport.supported_drivers['KML'] = 'rw'
         for kml_file in kml_files:
             gdf_kml = gpd.read_file(kml_file, driver='KML')
-            # Garante que estamos pegando apenas polígonos e multipolígonos
             gdf_kml = gdf_kml[gdf_kml.geometry.type.isin(['Polygon', 'MultiPolygon'])]
             todos_poligonos.extend(gdf_kml.geometry.tolist())
         
@@ -127,7 +125,6 @@ def simular_pacotes_por_densidade(gdf_co, n_equipes, capacidade_designada):
         return gpd.GeoDataFrame(), gdf_co.copy()
 
     gdf_clusters_reais = gdf_co.copy()
-
     pacotes_candidatos = []
     
     for cluster_id in gdf_clusters_reais['cluster'].unique():
@@ -192,7 +189,6 @@ def calcular_qualidade_carteira(row):
     """Calcula a qualidade da carteira com base nas metas e serviços agrupados."""
     meta_diaria = row.get('meta_diária', 0)
     if pd.isna(meta_diaria) or meta_diaria == 0: return "Sem Meta"
-    # A coluna 'Agrupado' deve existir no dataframe 'row' para este cálculo
     n_agrupados = row.get('Agrupado', 0)
     total_servicos = row.get('total', 0)
     
@@ -282,18 +278,18 @@ if uploaded_file is not None:
             
             st.sidebar.markdown("### 📥 Downloads")
             
-            df_agrupados_download = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Agrupado'].drop(columns=['geometry'])
+            df_agrupados_download = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Agrupado'].drop(columns=['geometry', 'cluster'], errors='ignore')
             if not df_agrupados_download.empty:
                 csv_agrupados = df_agrupados_download.to_csv(index=False).encode('utf-8-sig')
                 st.sidebar.download_button(label="⬇️ Baixar Agrupados (CSV)", data=csv_agrupados, file_name='servicos_agrupados.csv', mime='text/csv')
             
-            df_dispersos_download = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Disperso'].drop(columns=['geometry'])
+            df_dispersos_download = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Disperso'].drop(columns=['geometry', 'cluster'], errors='ignore')
             if not df_dispersos_download.empty:
                 csv_dispersos = df_dispersos_download.to_csv(index=False).encode('utf-8-sig')
                 st.sidebar.download_button(label="⬇️ Baixar Dispersos (CSV)", data=csv_dispersos, file_name='servicos_dispersos.csv', mime='text/csv')
 
             if not gdf_risco.empty:
-                df_risco_download = gdf_risco.drop(columns=['geometry'])
+                df_risco_download = gdf_risco.drop(columns=['geometry', 'cluster'], errors='ignore')
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='openpyxl') as writer:
                     df_risco_download.to_excel(writer, index=False, sheet_name='Area_de_Risco')
@@ -339,7 +335,7 @@ if uploaded_file is not None:
                         m = folium.Map(location=map_center, zoom_start=11)
                         
                         if kml_polygons:
-                            folium.GeoJson(kml_polygons, style_function=lambda x: {'fillColor': 'red', 'color': 'red', 'weight': 2, 'fillOpacity': 0.1}).add_to(m)
+                            folium.GeoJson(kml_polygons, style_function=lambda x: {'fillColor': 'red', 'color': 'red', 'weight': 2, 'fillOpacity': 0.1}, tooltip="Área de Risco / Ilha").add_to(m)
 
                         for _, row in gdf_visualizacao.iterrows():
                             cor_classificacao = {'Agrupado': 'blue', 'Disperso': 'gray', 'Área de Risco': 'red'}
@@ -360,42 +356,48 @@ if uploaded_file is not None:
                 with st.spinner('Gerando tabela de resumo...'):
                     st.subheader("Resumo por Centro Operativo")
                     
-                    resumo_co = gdf_filtrado_base.groupby('centro_operativo')['classificacao'].value_counts().unstack(fill_value=0).reset_index()
+                    resumo_co = gdf_filtrado_base.groupby('centro_operativo')['classificacao'].value_counts().unstack(fill_value=0)
                     
                     for col in ['Agrupado', 'Disperso', 'Área de Risco']:
                         if col not in resumo_co.columns:
                             resumo_co[col] = 0
                     
                     resumo_co['total'] = resumo_co['Agrupado'] + resumo_co['Disperso'] + resumo_co['Área de Risco']
-
                     resumo_co['% Agrupado'] = (resumo_co['Agrupado'] / resumo_co['total'] * 100).round(1)
                     resumo_co['% Disperso'] = (resumo_co['Disperso'] / resumo_co['total'] * 100).round(1)
                     resumo_co['% Área de Risco'] = (resumo_co['Área de Risco'] / resumo_co['total'] * 100).round(1)
+                    resumo_co.reset_index(inplace=True)
 
                     if df_metas is not None:
                         resumo_co['centro_operativo_join_key'] = resumo_co['centro_operativo'].str.strip().str.upper()
                         df_metas['centro_operativo_join_key'] = df_metas['centro_operativo'].str.strip().str.upper()
                         resumo_co = pd.merge(resumo_co, df_metas, on='centro_operativo_join_key', how='left')
+                        
+                        if 'centro_operativo_x' in resumo_co.columns:
+                           resumo_co = resumo_co.drop(columns=['centro_operativo_y', 'centro_operativo_join_key']).rename(columns={'centro_operativo_x': 'centro_operativo'})
+                        
                         resumo_co['qualidade_da_carteira'] = resumo_co.apply(calcular_qualidade_carteira, axis=1)
-                        # Reordenar e limpar colunas
                         cols_ordem = ['centro_operativo', 'total', 'Agrupado', '% Agrupado', 'Disperso', '% Disperso', 'Área de Risco', '% Área de Risco', 'qualidade_da_carteira']
-                        resumo_co = resumo_co[cols_ordem]
+                        cols_existentes = [col for col in cols_ordem if col in resumo_co.columns]
+                        resumo_co = resumo_co[cols_existentes]
 
-                    st.dataframe(resumo_co)
+                    st.dataframe(resumo_co, use_container_width=True)
 
             with tabs[2]:
                 with st.spinner('Desenhando contornos dos clusters...'):
                     st.subheader("Contorno Geográfico dos Clusters (Hotspots)")
                     st.write("Este mapa desenha um polígono ao redor de cada hotspot da categoria 'Agrupado'.")
                     
-                    gdf_clusters_reais = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Agrupado']
-                    if not gdf_clusters_reais.empty and 'cluster' in gdf_clusters_reais.columns:
+                    gdf_clusters_reais = gdf_filtrado_base[(gdf_filtrado_base['classificacao'] == 'Agrupado') & (gdf_filtrado_base['cluster'] != -1)]
+                    if not gdf_clusters_reais.empty:
                         map_center_hull = [gdf_clusters_reais.latitude.mean(), gdf_clusters_reais.longitude.mean()]
                         m_hull = folium.Map(location=map_center_hull, zoom_start=11)
                         if kml_polygons:
                             folium.GeoJson(kml_polygons, style_function=lambda x: {'fillColor': 'red', 'color': 'red', 'weight': 2, 'fillOpacity': 0.1}).add_to(m_hull)
                         try:
-                            hulls = gdf_clusters_reais.dissolve(by='cluster').convex_hull
+                            hulls = gdf_clusters_reais.dissolve(by='cluster', aggfunc={'centro_operativo': 'first'}).convex_hull
+                            gdf_hulls = gpd.GeoDataFrame(geometry=hulls).reset_index()
+                            folium.GeoJson(gdf_hulls, style_function=lambda x: {'color': 'blue', 'weight': 2.5, 'fillColor': 'blue', 'fillOpacity': 0.2}, tooltip=folium.GeoJsonTooltip(fields=['cluster'], aliases=['Hotspot ID:'])).add_to(m_hull)
                             st_folium(m_hull, use_container_width=True, height=700)
                         except Exception as e:
                             st.warning(f"Não foi possível desenhar os contornos. Erro: {e}")
@@ -428,15 +430,15 @@ if uploaded_file is not None:
                             else: 
                                 todos_excedentes.append(gdf_co)
                         
-                        gdf_servicos_dispersos = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Disperso'].copy()
-                        if not gdf_servicos_dispersos.empty:
-                            todos_excedentes.append(gdf_servicos_dispersos)
+                        gdf_servicos_restantes = gdf_filtrado_base[gdf_filtrado_base['classificacao'] != 'Agrupado'].copy()
+                        if not gdf_servicos_restantes.empty:
+                            todos_excedentes.append(gdf_servicos_restantes)
 
                         gdf_alocados_final = pd.concat(todos_alocados, ignore_index=True) if todos_alocados else gpd.GeoDataFrame()
                         gdf_excedentes_final = pd.concat(todos_excedentes, ignore_index=True) if todos_excedentes else gpd.GeoDataFrame()
                         
                         if not gdf_alocados_final.empty:
-                            df_pacotes_download = gdf_alocados_final.drop(columns=['geometry'])
+                            df_pacotes_download = gdf_alocados_final.drop(columns=['geometry', 'cluster'], errors='ignore')
                             output = io.BytesIO()
                             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                                 df_pacotes_download.to_excel(writer, index=False, sheet_name='Pacotes_Alocados')
@@ -452,19 +454,16 @@ if uploaded_file is not None:
                         metas_filtradas = df_metas[df_metas['centro_operativo'].isin(cos_filtrados)]
                         
                         if not metas_filtradas.empty:
-                            # Coluna 1
                             equipes_disponiveis = metas_filtradas['equipes'].sum()
                             meta_diaria_total = metas_filtradas['meta_diária'].sum()
                             metas_filtradas['expectativa_execucao'] = metas_filtradas['equipes'] * metas_filtradas['produção']
                             expectativa_total = metas_filtradas['expectativa_execucao'].sum()
                             
-                            # Coluna 2
                             servicos_agrupados_para_pacotes = len(gdf_para_pacotes)
                             servicos_alocados = len(gdf_alocados_final)
                             pacotes_criados = gdf_alocados_final['pacote_id'].nunique() if not gdf_alocados_final.empty else 0
                             servicos_excedentes = len(gdf_excedentes_final)
 
-                            # Coluna 3
                             aderencia_meta = (servicos_alocados / meta_diaria_total * 100) if meta_diaria_total > 0 else 0
                             ocupacao_equipes = (pacotes_criados / equipes_disponiveis * 100) if equipes_disponiveis > 0 else 0
 
@@ -513,10 +512,9 @@ if uploaded_file is not None:
                             st_folium(m_pacotes, use_container_width=True, height=700)
                         else:
                             st.info("Nenhum pacote de trabalho para simular.")
-
             with tabs[-1]:
                 st.subheader("As Metodologias por Trás da Análise")
-                st.markdown(""" (FAQ e Metodologia aqui) """)
+                st.markdown(""" (O conteúdo da metodologia será inserido aqui) """)
         else:
             st.warning("Nenhum dado para exibir com os filtros atuais.")
 else:
