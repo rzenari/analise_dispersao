@@ -36,24 +36,24 @@ def carregar_kmls(pasta_projeto):
     """
     kml_files = glob.glob(os.path.join(pasta_projeto, '*.kml'))
     if not kml_files:
-        return None
+        return None, None
     
     todos_poligonos = []
     try:
-        gpd.io.file.fiona.drvsupport.supported_drivers['KML'] = 'rw'
+        # A linha que causava o erro foi removida. Geopandas com fiona instalado lê KML diretamente.
         for kml_file in kml_files:
             gdf_kml = gpd.read_file(kml_file, driver='KML')
             gdf_kml = gdf_kml[gdf_kml.geometry.type.isin(['Polygon', 'MultiPolygon'])]
             todos_poligonos.extend(gdf_kml.geometry.tolist())
         
         if not todos_poligonos:
-            return None
+            return None, kml_files
 
         geometria_unificada = gpd.GeoSeries(todos_poligonos).unary_union
-        return geometria_unificada
+        return geometria_unificada, kml_files
     except Exception as e:
         st.warning(f"Atenção: Não foi possível ler os arquivos KML. Erro: {e}. A análise continuará sem a classificação de área de risco.")
-        return None
+        return None, None
 
 def carregar_dados_completos(arquivo_enviado):
     """Lê o arquivo completo com todas as colunas, que será a fonte única de dados."""
@@ -210,9 +210,9 @@ if uploaded_file is not None:
     if df_completo_original is not None:
         st.sidebar.success(f"{len(df_completo_original)} registros carregados!")
         
-        kml_polygons = carregar_kmls('.')
-        if kml_polygons:
-            st.sidebar.info(f"Arquivos KML de áreas de exceção carregados.")
+        kml_polygons, kml_files_found = carregar_kmls('.')
+        if kml_files_found:
+            st.sidebar.info(f"{len(kml_files_found)} arquivo(s) KML de áreas de exceção carregado(s).")
         
         if df_metas is not None: 
             st.sidebar.info(f"Metas carregadas para {len(df_metas)} COs.")
