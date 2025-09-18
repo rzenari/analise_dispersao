@@ -416,7 +416,11 @@ if uploaded_file is not None:
                     resumo_co = gdf_filtrado_base.groupby('centro_operativo')['classificacao'].value_counts().unstack(fill_value=0)
                     for col in ['Agrupado', 'Disperso', 'Área de Risco']:
                         if col not in resumo_co.columns: resumo_co[col] = 0
+                    
                     resumo_co['total'] = resumo_co['Agrupado'] + resumo_co['Disperso'] + resumo_co['Área de Risco']
+                    resumo_co['% Agrupado'] = (resumo_co['Agrupado'] / resumo_co['total'] * 100).round(1)
+                    resumo_co['% Disperso'] = (resumo_co['Disperso'] / resumo_co['total'] * 100).round(1)
+                    resumo_co['% Área de Risco'] = (resumo_co['Área de Risco'] / resumo_co['total'] * 100).round(1)
                     resumo_co.reset_index(inplace=True)
 
                     if df_metas is not None:
@@ -438,8 +442,9 @@ if uploaded_file is not None:
                         resumo_co['Ocupação_das_Equipes_%'] = (resumo_co['Pacotes_Criados'] / resumo_co['equipes'] * 100).fillna(0).round(1)
                         resumo_co['qualidade_da_carteira'] = resumo_co.apply(calcular_qualidade_carteira, axis=1)
                         
-                        cols_ordem = ['centro_operativo', 'total', 'Agrupado', 'Disperso', 'Área de Risco', 'equipes', 'meta_diária', 'Expectativa_Execução', 'Serviços_Alocados', 'Pacotes_Criados', 'Aderência_à_Meta_%', 'Ocupação_das_Equipes_%', 'qualidade_da_carteira']
-                        resumo_co = resumo_co[cols_ordem].fillna(0)
+                        cols_ordem = ['centro_operativo', 'total', 'Agrupado', '% Agrupado', 'Disperso', '% Disperso', 'Área de Risco', '% Área de Risco', 'equipes', 'meta_diária', 'Expectativa_Execução', 'Serviços_Alocados', 'Pacotes_Criados', 'Aderência_à_Meta_%', 'Ocupação_das_Equipes_%', 'qualidade_da_carteira']
+                        cols_existentes = [col for col in cols_ordem if col in resumo_co.columns]
+                        resumo_co = resumo_co[cols_existentes].fillna(0)
 
                     st.dataframe(resumo_co, use_container_width=True)
 
