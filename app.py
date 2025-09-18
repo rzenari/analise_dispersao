@@ -63,11 +63,13 @@ def carregar_dados_metas(arquivo_metas):
     try:
         df = pd.read_excel(arquivo_metas, engine='openpyxl')
         df.columns = df.columns.str.lower().str.strip()
-        if 'centro_operativo' in df.columns and 'produção' in df.columns:
+        # Validação para garantir que as colunas essenciais para a simulação existam
+        required_cols = ['centro_operativo', 'equipes', 'serviços designados']
+        if all(col in df.columns for col in required_cols):
             df['centro_operativo'] = df['centro_operativo'].str.strip().str.upper()
             return df
         else:
-            st.error("ERRO: A planilha de metas precisa conter as colunas 'Centro_Operativo' e 'Produção'.")
+            st.error("ERRO: A planilha de metas precisa conter as colunas 'Centro_Operativo', 'Equipes' e 'Serviços designados'.")
             return None
     except Exception as e:
         st.error(f"Não foi possível ler a planilha de metas. Erro: {e}")
@@ -105,13 +107,11 @@ def executar_dbscan(gdf, eps_km=0.5, min_samples=3):
     gdf_copy['cluster'] = db.labels_
     return gdf_copy
 
-def simular_pacotes_por_densidade(gdf_co, n_equipes, capacidade_producao):
+def simular_pacotes_por_densidade(gdf_co, n_equipes, capacidade_designada):
     """
-    Simula pacotes com base na densidade, respeitando estritamente a capacidade de produção.
-    A subdivisão de grandes clusters agora usa um método iterativo de 'descascamento'
-    para garantir que nenhum pacote exceda o limite.
+    Simula pacotes com base na densidade, respeitando estritamente a capacidade de serviços designados.
     """
-    if gdf_co.empty or n_equipes == 0 or capacidade_producao == 0:
+    if gdf_co.empty or n_equipes == 0 or capacidade_designada == 0:
         return gpd.GeoDataFrame(), gdf_co.copy()
 
     gdf_clusters_reais = gdf_co[gdf_co['cluster'] != -1].copy()
@@ -124,20 +124,20 @@ def simular_pacotes_por_densidade(gdf_co, n_equipes, capacidade_producao):
         gdf_cluster_atual = gdf_clusters_reais[gdf_clusters_reais['cluster'] == cluster_id]
         contagem = len(gdf_cluster_atual)
 
-        if 0 < contagem <= capacidade_producao:
+        if 0 < contagem <= capacidade_designada:
             pacotes_candidatos.append({'indices': gdf_cluster_atual.index, 'pontos': gdf_cluster_atual})
         
-        elif contagem > capacidade_producao:
+        elif contagem > capacidade_designada:
             gdf_temp = gdf_cluster_atual.copy()
             while len(gdf_temp) > 0:
-                if len(gdf_temp) <= capacidade_producao:
+                if len(gdf_temp) <= capacidade_designada:
                     pacotes_candidatos.append({'indices': gdf_temp.index, 'pontos': gdf_temp})
                     break
                 
                 coords_temp = gdf_temp[['longitude', 'latitude']].values
                 tree = cKDTree(coords_temp)
                 
-                _, indices_vizinhos = tree.query(coords_temp[0], k=capacidade_producao)
+                _, indices_vizinhos = tree.query(coords_temp[0], k=capacidade_designada)
                 
                 indices_reais_no_gdf_temp = gdf_temp.index[indices_vizinhos]
                 sub_pacote = gdf_temp.loc[indices_reais_no_gdf_temp]
@@ -249,12 +249,8 @@ if uploaded_file is not None:
             st.sidebar.markdown("### Filtro de Visualização do Mapa")
             tipo_visualizacao = st.sidebar.radio("Mostrar nos mapas:", ("Todos os Serviços", "Apenas Agrupados", "Apenas Dispersos"), help="Isto afeta apenas os pontos mostrados nos mapas, não as métricas.")
             
-            # #################################################
-            # ## INÍCIO DAS ALTERAÇÕES SOLICITADAS (DOWNLOADS) ##
-            # #################################################
             st.sidebar.markdown("### 📥 Downloads")
             
-            # Downloads de Agrupados e Dispersos (CSV)
             if 'numero_ordem' in gdf_com_clusters.columns:
                 df_agrupados_download = gdf_com_clusters[gdf_com_clusters['cluster'] != -1].drop(columns=['geometry'])
                 csv_agrupados = df_agrupados_download.to_csv(index=False).encode('utf-8-sig')
@@ -263,12 +259,6 @@ if uploaded_file is not None:
                 df_dispersos_download = gdf_com_clusters[gdf_com_clusters['cluster'] == -1].drop(columns=['geometry'])
                 csv_dispersos = df_dispersos_download.to_csv(index=False).encode('utf-8-sig')
                 st.sidebar.download_button(label="⬇️ Baixar Serviços Dispersos (CSV)", data=csv_dispersos, file_name='servicos_dispersos.csv', mime='text/csv', disabled=df_dispersos_download.empty)
-            
-            # O botão de download de pacotes será adicionado dinamicamente mais abaixo se os pacotes forem criados
-            
-            # ###############################################
-            # ## FIM DAS ALTERAÇÕES SOLICITADAS (DOWNLOADS) ##
-            # ###############################################
 
             gdf_visualizacao = gdf_com_clusters.copy()
             if tipo_visualizacao == "Apenas Agrupados": gdf_visualizacao = gdf_com_clusters[gdf_com_clusters['cluster'] != -1]
@@ -373,10 +363,11 @@ if uploaded_file is not None:
                             
                             if not metas_co.empty:
                                 n_equipes = int(metas_co['equipes'].iloc[0])
-                                capacidade_producao = int(metas_co['produção'].iloc[0])
+                                # ALTERAÇÃO: Usa a coluna "serviços designados" como a capacidade real
+                                capacidade_designada = int(metas_co['serviços designados'].iloc[0])
                                 
-                                if n_equipes > 0 and capacidade_producao > 0 and len(gdf_co) > 0:
-                                    alocados, excedentes = simular_pacotes_por_densidade(gdf_co, n_equipes, capacidade_producao)
+                                if n_equipes > 0 and capacidade_designada > 0 and len(gdf_co) > 0:
+                                    alocados, excedentes = simular_pacotes_por_densidade(gdf_co, n_equipes, capacidade_designada)
                                     todos_alocados.append(alocados)
                                     todos_excedentes.append(excedentes)
                             else: 
@@ -385,7 +376,6 @@ if uploaded_file is not None:
                         gdf_alocados_final = pd.concat(todos_alocados) if todos_alocados else gpd.GeoDataFrame()
                         gdf_excedentes_final = pd.concat(todos_excedentes) if todos_excedentes else gpd.GeoDataFrame()
                         
-                        # Adiciona o botão de download dos pacotes na sidebar
                         if not gdf_alocados_final.empty:
                             df_pacotes_download = gdf_alocados_final.drop(columns=['geometry'])
                             output = io.BytesIO()
@@ -451,9 +441,19 @@ if uploaded_file is not None:
                 """)
                 st.subheader("Perguntas Frequentes (FAQ)")
                 st.markdown("""
-                - **Por que alguns serviços ficam como "dispersos"?** Um serviço é considerado disperso (ou ruído) pelo DBSCAN se ele não tiver um número mínimo de vizinhos (`Mínimo de Pontos por Cluster`) dentro de um raio de busca (`Raio do Cluster`). Isso indica que ele está geograficamente isolado dos demais.
-                - **Como escolher os melhores parâmetros de cluster?** Não há um número mágico. Comece com os padrões (Raio: 1km, Mínimo de Pontos: 20). Se você perceber que muitos serviços que parecem próximos estão como "dispersos", tente aumentar o `Raio do Cluster`. Se clusters muito grandes estão sendo formados, tente diminuir o raio ou aumentar o `Mínimo de Pontos`.
-                - **O que significa um pacote excedente na simulação?** Significa que, após atribuir os pacotes mais densos e eficientes para todas as equipes disponíveis, ainda sobraram serviços. Eles podem ser serviços de hotspots de baixa prioridade (baixa densidade) que não entraram no ranking ou serviços já classificados como dispersos.
+                - **Qual a diferença entre 'Produção' e 'Serviços Designados' na planilha de metas?**
+                  - **`Produção`** é a meta de serviços *executados com sucesso* que uma equipe deve atingir. É um indicador de performance.
+                  - **`Serviços Designados`** é a quantidade total de serviços que devem ser atribuídos a uma equipe para o dia. Este número é geralmente maior que a 'Produção' para compensar a **improdutividade** (ex: cliente ausente, endereço incorreto). A ferramenta usa os **'Serviços Designados'** para definir o tamanho máximo de um pacote de trabalho.
+
+                - **Qual a estratégia usada para formar os pacotes de trabalho?**
+                  - A ferramenta adota uma estratégia de **"Ranking de Densidade"**. Ela primeiro identifica todas as áreas de alta concentração de serviços (hotspots). Em seguida, calcula a densidade (serviços por km²) de cada uma e cria um ranking. Os pacotes de trabalho são atribuídos às equipes começando pelos hotspots mais densos, garantindo a máxima eficiência de deslocamento.
+
+                - **O que acontece se um 'hotspot' for muito grande para uma única equipe?**
+                  - Se um hotspot contém mais serviços do que o valor em 'Serviços Designados', a ferramenta não o descarta. Em vez disso, ela aplica um método de **"descascamento" (peeling)**: ela inteligentemente "recorta" pacotes de tamanho perfeito de dentro da área do hotspot, um de cada vez, até que todos os serviços do hotspot sejam alocados em pacotes que respeitem o limite da equipe.
+
+                - **Por que alguns serviços ficam como "dispersos"?** - Um serviço é considerado disperso (ou ruído) pelo DBSCAN se ele não tiver um número mínimo de vizinhos (`Mínimo de Pontos por Cluster`) dentro de um raio de busca (`Raio do Cluster`). Isso indica que ele está geograficamente isolado dos demais.
+
+                - **O que significa um serviço "excedente" na simulação?** - Significa que, após atribuir os pacotes mais densos e eficientes para todas as equipes disponíveis, ainda sobraram serviços. Eles podem ser serviços de hotspots de baixa prioridade (baixa densidade) que não entraram no ranking ou serviços já classificados como dispersos.
                 """)
         else:
             st.warning("Nenhum dado para exibir com os filtros atuais.")
