@@ -13,6 +13,8 @@ from streamlit_folium import st_folium
 from folium.plugins import MarkerCluster
 from shapely.geometry import Polygon
 import io  # Necessário para o download em Excel
+import os
+import glob # Para encontrar os arquivos KML
 
 # ==============================================================================
 # 2. CONFIGURAÇÃO DA PÁGINA E TÍTULOS
@@ -25,6 +27,36 @@ st.write("Faça o upload da sua planilha de cortes para analisar a distribuiçã
 # ==============================================================================
 # 3. FUNÇÕES DE ANÁLISE
 # ==============================================================================
+
+@st.cache_data
+def carregar_kmls(pasta_projeto):
+    """
+    Varre a pasta do projeto, encontra todos os arquivos .kml,
+    lê e unifica todas as geometrias de polígonos em uma única geometria.
+    """
+    kml_files = glob.glob(os.path.join(pasta_projeto, '*.kml'))
+    if not kml_files:
+        return None
+    
+    todos_poligonos = []
+    try:
+        # Habilitar o driver KML do fiona, que o geopandas usa por baixo dos panos
+        gpd.io.file.fiona.drvsupport.supported_drivers['KML'] = 'rw'
+        for kml_file in kml_files:
+            gdf_kml = gpd.read_file(kml_file, driver='KML')
+            # Garante que estamos pegando apenas polígonos e multipolígonos
+            gdf_kml = gdf_kml[gdf_kml.geometry.type.isin(['Polygon', 'MultiPolygon'])]
+            todos_poligonos.extend(gdf_kml.geometry.tolist())
+        
+        if not todos_poligonos:
+            return None
+
+        geometria_unificada = gpd.GeoSeries(todos_poligonos).unary_union
+        return geometria_unificada
+    except Exception as e:
+        st.warning(f"Atenção: Não foi possível ler os arquivos KML. Erro: {e}. A análise continuará sem a classificação de área de risco.")
+        return None
+
 def carregar_dados_completos(arquivo_enviado):
     """Lê o arquivo completo com todas as colunas, que será a fonte única de dados."""
     arquivo_enviado.seek(0)
@@ -74,25 +106,6 @@ def carregar_dados_metas(arquivo_metas):
         st.error(f"Não foi possível ler a planilha de metas. Erro: {e}")
         return None
 
-def calcular_nni_otimizado(gdf):
-    """Calcula NNI de forma otimizada para memória."""
-    if len(gdf) < 3: return None, "Pontos insuficientes (< 3)."
-    n_points = len(gdf)
-    points = np.array([gdf.geometry.x, gdf.geometry.y]).T
-    tree = cKDTree(points)
-    distances, _ = tree.query(points, k=2)
-    observed_mean_dist = np.mean(distances[:, 1])
-    try:
-        total_bounds = gdf.total_bounds; area = (total_bounds[2] - total_bounds[0]) * (total_bounds[3] - total_bounds[1])
-        if area == 0: return None, "Área inválida."
-        expected_mean_dist = 0.5 * sqrt(area / n_points)
-        nni = observed_mean_dist / expected_mean_dist
-        if nni < 1: interpretacao = f"Agrupado (NNI: {nni:.2f})"
-        elif nni > 1: interpretacao = f"Disperso (NNI: {nni:.2f})"
-        else: interpretacao = f"Aleatório (NNI: {nni:.2f})"
-        return nni, interpretacao
-    except Exception as e: return None, f"Erro no cálculo: {e}"
-
 def executar_dbscan(gdf, eps_km=0.5, min_samples=3):
     """Executa o DBSCAN para encontrar clusters."""
     if gdf.empty or len(gdf) < min_samples: 
@@ -113,9 +126,7 @@ def simular_pacotes_por_densidade(gdf_co, n_equipes, capacidade_designada):
     if gdf_co.empty or n_equipes == 0 or capacidade_designada == 0:
         return gpd.GeoDataFrame(), gdf_co.copy()
 
-    gdf_clusters_reais = gdf_co[gdf_co['cluster'] != -1].copy()
-    if gdf_clusters_reais.empty:
-        return gpd.GeoDataFrame(), gdf_co.copy()
+    gdf_clusters_reais = gdf_co.copy()
 
     pacotes_candidatos = []
     
@@ -136,7 +147,7 @@ def simular_pacotes_por_densidade(gdf_co, n_equipes, capacidade_designada):
                 coords_temp = gdf_temp[['longitude', 'latitude']].values
                 tree = cKDTree(coords_temp)
                 
-                _, indices_vizinhos = tree.query(coords_temp[0], k=capacidade_designada)
+                _, indices_vizinhos = tree.query(coords_temp[0], k=min(capacidade_designada, len(coords_temp)))
                 
                 indices_reais_no_gdf_temp = gdf_temp.index[indices_vizinhos]
                 sub_pacote = gdf_temp.loc[indices_reais_no_gdf_temp]
@@ -177,28 +188,16 @@ def simular_pacotes_por_densidade(gdf_co, n_equipes, capacidade_designada):
 
     return gdf_alocados, gdf_excedentes
 
-def gerar_resumo_didatico(nni_valor, n_clusters, percent_dispersos, is_media=False):
-    if nni_valor is None: return ""
-    prefixo = "Na média, o padrão" if is_media else "O padrão"
-    if percent_dispersos > 50:
-        titulo = "⚠️ **Padrão Misto (Agrupamentos Isolados)**"; obs = f"Apesar da existência de **{n_clusters} hotspots**, a maioria dos serviços (**{percent_dispersos:.1f}%**) está **dispersa** pela região."; acao = f"**Ação Recomendada:** Trate a operação de forma híbrida. Otimize rotas para os hotspots e agrupe os serviços dispersos por setor ou dia."
-    elif nni_valor < 0.5:
-        titulo = "📈 **Padrão Fortemente Agrupado (Excelente Oportunidade Logística)**"; obs = f"{prefixo} dos cortes é **fortemente concentrado** em áreas específicas."; acao = f"**Ação Recomendada:** Crie rotas otimizadas com baixo deslocamento. Avalie alocar equipes dedicadas para os **{n_clusters} hotspots** encontrados."
-    elif 0.5 <= nni_valor < 0.8:
-        titulo = "📊 **Padrão Moderadamente Agrupado (Potencial de Otimização)**"; obs = f"{prefixo} dos cortes apresenta **boa concentração**."; acao = f"**Ação Recomendada:** Identifique os **{n_clusters} hotspots** mais densos para priorizar o roteamento."
-    elif 0.8 <= nni_valor <= 1.2:
-        titulo = "😐 **Padrão Aleatório (Sem Padrão Claro)**"; obs = f"{prefixo} dos cortes é **aleatório**."; acao = f"**Ação Recomendada:** A logística tende a ser menos previsível. Considere uma abordagem de roteirização diária e dinâmica."
-    else: 
-        titulo = "📉 **Padrão Disperso (Desafio Logístico)**"; obs = f"{prefixo} dos cortes está **muito espalhado**."; acao = f"**Ação Recomendada:** Planeje rotas com antecedência para minimizar custos de deslocamento."
-    return f"""<div style="background-color:#f0f2f6; padding: 15px; border-radius: 10px;"><h4 style="color:#31333f;">{titulo}</h4><ul style="color:#31333f;"><li><b>Observação:</b> {obs}</li><li><b>Ação Recomendada:</b> {acao}</li></ul></div>"""
-
 def calcular_qualidade_carteira(row):
     """Calcula a qualidade da carteira com base nas metas e serviços agrupados."""
     meta_diaria = row.get('meta_diária', 0)
     if pd.isna(meta_diaria) or meta_diaria == 0: return "Sem Meta"
-    if pd.isna(row.get('nº agrupados')) or pd.isna(row.get('total de serviços')): return "Dados Insuficientes"
-    if row['nº agrupados'] >= meta_diaria: return "✅ Ótima"
-    elif row['total de serviços'] >= meta_diaria: return "⚠️ Atenção"
+    # A coluna 'Agrupado' deve existir no dataframe 'row' para este cálculo
+    n_agrupados = row.get('Agrupado', 0)
+    total_servicos = row.get('total', 0)
+    
+    if n_agrupados >= meta_diaria: return "✅ Ótima"
+    elif total_servicos >= meta_diaria: return "⚠️ Atenção"
     else: return "❌ Crítica"
 
 # ==============================================================================
@@ -209,60 +208,107 @@ uploaded_file = st.sidebar.file_uploader("1. Escolha a planilha de cortes", type
 metas_file = st.sidebar.file_uploader("2. Escolha a planilha de metas (Opcional)", type=["xlsx", "xls"])
 
 if uploaded_file is not None:
-    df_completo = carregar_dados_completos(uploaded_file)
+    df_completo_original = carregar_dados_completos(uploaded_file)
     df_metas = carregar_dados_metas(metas_file)
     
-    if df_completo is not None:
-        st.sidebar.success(f"{len(df_completo)} registros carregados!")
-        if df_metas is not None: st.sidebar.info(f"Metas carregadas para {len(df_metas)} COs.")
+    if df_completo_original is not None:
+        st.sidebar.success(f"{len(df_completo_original)} registros carregados!")
+        
+        kml_polygons = carregar_kmls('.')
+        if kml_polygons:
+            st.sidebar.info(f"Arquivos KML de áreas de exceção carregados.")
+        
+        if df_metas is not None: 
+            st.sidebar.info(f"Metas carregadas para {len(df_metas)} COs.")
 
         st.sidebar.markdown("### Filtros da Análise")
         filtros = ['sucursal', 'centro_operativo', 'corte_recorte', 'prioridade']
         valores_selecionados = {}
         for coluna in filtros:
-            if coluna in df_completo.columns:
-                lista_unica = df_completo[coluna].dropna().unique().tolist()
+            if coluna in df_completo_original.columns:
+                lista_unica = df_completo_original[coluna].dropna().unique().tolist()
                 opcoes = sorted([str(item) for item in lista_unica])
                 if coluna == 'prioridade':
                     valores_selecionados[coluna] = st.sidebar.multiselect(f"{coluna.replace('_', ' ').title()}", opcoes)
                 else:
                     valores_selecionados[coluna] = st.sidebar.selectbox(f"{coluna.replace('_', ' ').title()}", ["Todos"] + opcoes)
 
-        df_filtrado = df_completo.copy()
+        df_filtrado = df_completo_original.copy()
         for coluna, valor in valores_selecionados.items():
             if coluna in df_filtrado.columns:
                 if coluna == 'prioridade':
                     if valor: df_filtrado = df_filtrado[df_filtrado[coluna].astype(str).isin(valor)]
                 elif valor != "Todos": df_filtrado = df_filtrado[df_filtrado[coluna].astype(str) == valor]
 
+        gdf_filtrado_base = gpd.GeoDataFrame(
+            df_filtrado, 
+            geometry=gpd.points_from_xy(df_filtrado.longitude, df_filtrado.latitude), 
+            crs="EPSG:4326"
+        )
+
+        gdf_filtrado_base['classificacao'] = 'A ser definido'
+        gdf_risco = gpd.GeoDataFrame()
+
+        if kml_polygons:
+            indices_risco = gdf_filtrado_base.within(kml_polygons)
+            gdf_filtrado_base.loc[indices_risco, 'classificacao'] = 'Área de Risco'
+            gdf_risco = gdf_filtrado_base[indices_risco].copy()
+
+        gdf_para_analise = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'A ser definido'].copy()
+        
+        st.sidebar.markdown("### Parâmetros de Cluster")
+        eps_cluster_km = st.sidebar.slider("Raio do Cluster (km)", 0.1, 5.0, 1.0, 0.1)
+        min_samples_cluster = st.sidebar.slider("Mínimo de Pontos por Cluster", 2, 20, 20, 1)
+
+        if not gdf_para_analise.empty:
+            gdf_com_clusters = executar_dbscan(gdf_para_analise, eps_km=eps_cluster_km, min_samples=min_samples_cluster)
+            gdf_filtrado_base.loc[gdf_com_clusters[gdf_com_clusters['cluster'] != -1].index, 'classificacao'] = 'Agrupado'
+            gdf_filtrado_base.loc[gdf_com_clusters[gdf_com_clusters['cluster'] == -1].index, 'classificacao'] = 'Disperso'
+            gdf_filtrado_base = gdf_filtrado_base.merge(gdf_com_clusters[['cluster']], left_index=True, right_index=True, how='left')
+        else:
+             gdf_filtrado_base['cluster'] = -1
+        
+        gdf_filtrado_base['cluster'] = gdf_filtrado_base['cluster'].fillna(-1)
+        gdf_filtrado_base.loc[gdf_filtrado_base['classificacao'] == 'A ser definido', 'classificacao'] = 'Disperso'
+
         st.header("Resultados da Análise")
         
-        if not df_filtrado.empty:
-            st.sidebar.markdown("### Parâmetros de Cluster")
-            eps_cluster_km = st.sidebar.slider("Raio do Cluster (km)", 0.1, 5.0, 1.0, 0.1, help="Define o raio de busca para agrupar pontos no DBSCAN.")
-            min_samples_cluster = st.sidebar.slider("Mínimo de Pontos por Cluster", 2, 20, 20, 1, help="Número mínimo de pontos para formar um hotspot.")
-            
-            gdf_base = gpd.GeoDataFrame(df_filtrado, geometry=gpd.points_from_xy(df_filtrado.longitude, df_filtrado.latitude), crs="EPSG:4326")
-            gdf_com_clusters = executar_dbscan(gdf_base, eps_km=eps_cluster_km, min_samples=min_samples_cluster)
-            
+        if not gdf_filtrado_base.empty:
             st.sidebar.markdown("### Filtro de Visualização do Mapa")
-            tipo_visualizacao = st.sidebar.radio("Mostrar nos mapas:", ("Todos os Serviços", "Apenas Agrupados", "Apenas Dispersos"), help="Isto afeta apenas os pontos mostrados nos mapas, não as métricas.")
+            opcoes_visualizacao = ["Todos", "Agrupado", "Disperso"]
+            if not gdf_risco.empty:
+                opcoes_visualizacao.append("Área de Risco")
+            tipo_visualizacao = st.sidebar.radio("Mostrar nos mapas:", opcoes_visualizacao)
             
             st.sidebar.markdown("### 📥 Downloads")
             
-            if 'numero_ordem' in gdf_com_clusters.columns:
-                df_agrupados_download = gdf_com_clusters[gdf_com_clusters['cluster'] != -1].drop(columns=['geometry'])
+            df_agrupados_download = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Agrupado'].drop(columns=['geometry'])
+            if not df_agrupados_download.empty:
                 csv_agrupados = df_agrupados_download.to_csv(index=False).encode('utf-8-sig')
-                st.sidebar.download_button(label="⬇️ Baixar Serviços Agrupados (CSV)", data=csv_agrupados, file_name='servicos_agrupados.csv', mime='text/csv', disabled=df_agrupados_download.empty)
-                
-                df_dispersos_download = gdf_com_clusters[gdf_com_clusters['cluster'] == -1].drop(columns=['geometry'])
-                csv_dispersos = df_dispersos_download.to_csv(index=False).encode('utf-8-sig')
-                st.sidebar.download_button(label="⬇️ Baixar Serviços Dispersos (CSV)", data=csv_dispersos, file_name='servicos_dispersos.csv', mime='text/csv', disabled=df_dispersos_download.empty)
-
-            gdf_visualizacao = gdf_com_clusters.copy()
-            if tipo_visualizacao == "Apenas Agrupados": gdf_visualizacao = gdf_com_clusters[gdf_com_clusters['cluster'] != -1]
-            elif tipo_visualizacao == "Apenas Dispersos": gdf_visualizacao = gdf_com_clusters[gdf_com_clusters['cluster'] == -1]
+                st.sidebar.download_button(label="⬇️ Baixar Agrupados (CSV)", data=csv_agrupados, file_name='servicos_agrupados.csv', mime='text/csv')
             
+            df_dispersos_download = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Disperso'].drop(columns=['geometry'])
+            if not df_dispersos_download.empty:
+                csv_dispersos = df_dispersos_download.to_csv(index=False).encode('utf-8-sig')
+                st.sidebar.download_button(label="⬇️ Baixar Dispersos (CSV)", data=csv_dispersos, file_name='servicos_dispersos.csv', mime='text/csv')
+
+            if not gdf_risco.empty:
+                df_risco_download = gdf_risco.drop(columns=['geometry'])
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    df_risco_download.to_excel(writer, index=False, sheet_name='Area_de_Risco')
+                excel_data = output.getvalue()
+                st.sidebar.download_button(
+                    label="⬇️ Baixar Área de Risco (Excel)",
+                    data=excel_data,
+                    file_name='servicos_area_risco.xlsx',
+                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                )
+
+            gdf_visualizacao = gdf_filtrado_base.copy()
+            if tipo_visualizacao != "Todos":
+                 gdf_visualizacao = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == tipo_visualizacao]
+
             lista_abas = ["🗺️ Análise Geográfica", "📊 Resumo por CO", "📍 Contorno dos Clusters"]
             if df_metas is not None: lista_abas.append("📦 Pacotes de Trabalho")
             lista_abas.append("💡 Metodologia")
@@ -270,82 +316,92 @@ if uploaded_file is not None:
 
             with tabs[0]:
                 with st.spinner('Carregando análise e mapa...'):
+                    st.subheader("Resumo da Análise de Classificação")
+                    
+                    total_servicos = len(gdf_filtrado_base)
+                    n_agrupados = len(gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Agrupado'])
+                    n_dispersos = len(gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Disperso'])
+                    n_risco = len(gdf_risco)
+
+                    p_agrupados = (n_agrupados / total_servicos * 100) if total_servicos > 0 else 0
+                    p_dispersos = (n_dispersos / total_servicos * 100) if total_servicos > 0 else 0
+                    p_risco = (n_risco / total_servicos * 100) if total_servicos > 0 else 0
+                    
                     col1, col2, col3 = st.columns(3)
-                    col1.metric("Total de Cortes Carregados", len(df_completo))
-                    col2.metric("Cortes na Seleção Atual", len(df_filtrado))
-                    nni_valor_final, nni_texto = calcular_nni_otimizado(gdf_com_clusters)
-                    help_nni = "O Índice do Vizinho Mais Próximo (NNI) mede se o padrão dos pontos é agrupado, disperso ou aleatório. NNI < 1: Agrupado. NNI ≈ 1: Aleatório. NNI > 1: Disperso."
-                    col3.metric("Padrão de Dispersão (NNI)", nni_texto, help=help_nni)
-                    n_clusters_total = len(set(gdf_com_clusters['cluster'])) - (1 if -1 in gdf_com_clusters['cluster'] else 0)
-                    total_pontos = len(gdf_com_clusters)
-                    n_ruido = list(gdf_com_clusters['cluster']).count(-1)
-                    percent_dispersos = (n_ruido / total_pontos * 100) if total_pontos > 0 else 0
-                    with st.expander("🔍 O que estes números significam?", expanded=True):
-                        st.markdown(gerar_resumo_didatico(nni_valor_final, n_clusters_total, percent_dispersos), unsafe_allow_html=True)
-                    st.subheader("Resumo da Análise de Cluster")
-                    n_agrupados = total_pontos - n_ruido
-                    if total_pontos > 0:
-                        percent_agrupados = (n_agrupados / total_pontos) * 100
-                        c1,c2,c3 = st.columns(3)
-                        c1.metric("Nº de Hotspots", f"{n_clusters_total}")
-                        sc1, sc2 = st.columns(2)
-                        sc1.metric("Nº Agrupados", f"{n_agrupados}")
-                        sc1.metric("% Agrupados", f"{percent_agrupados:.1f}%")
-                        sc2.metric("Nº Dispersos", f"{n_ruido}")
-                        sc2.metric("% Dispersos", f"{percent_dispersos:.1f}%")
-                    st.subheader(f"Mapa Interativo de Hotspots")
-                    st.write("Dê zoom no mapa para expandir os agrupamentos.")
+                    col1.metric("Nº Agrupados", f"{n_agrupados}", f"{p_agrupados:.1f}%")
+                    col2.metric("Nº Dispersos", f"{n_dispersos}", f"{p_dispersos:.1f}%")
+                    col3.metric("Nº em Área de Risco", f"{n_risco}", f"{p_risco:.1f}%")
+
+                    st.subheader(f"Mapa Interativo")
+                    st.write("Serviços em azul são Agrupados, cinza são Dispersos e vermelho estão em Área de Risco.")
                     if not gdf_visualizacao.empty:
                         map_center = [gdf_visualizacao.latitude.mean(), gdf_visualizacao.longitude.mean()]
                         m = folium.Map(location=map_center, zoom_start=11)
-                        marker_cluster = MarkerCluster().add_to(m)
-                        for idx, row in gdf_visualizacao.iterrows():
-                            popup_text = "".join([f"{col.replace('_', ' ').title()}: {str(row[col])}<br>" for col in ['prioridade', 'centro_operativo', 'corte_recorte'] if col in row])
-                            folium.Marker(location=[row['latitude'], row['longitude']], popup=popup_text).add_to(marker_cluster)
+                        
+                        if kml_polygons:
+                            folium.GeoJson(kml_polygons, style_function=lambda x: {'fillColor': 'red', 'color': 'red', 'weight': 2, 'fillOpacity': 0.1}).add_to(m)
+
+                        for _, row in gdf_visualizacao.iterrows():
+                            cor_classificacao = {'Agrupado': 'blue', 'Disperso': 'gray', 'Área de Risco': 'red'}
+                            folium.CircleMarker(
+                                location=[row['latitude'], row['longitude']],
+                                radius=5,
+                                color=cor_classificacao.get(row['classificacao'], 'black'),
+                                fill=True,
+                                fill_color=cor_classificacao.get(row['classificacao'], 'black'),
+                                fill_opacity=0.7,
+                                popup=f"Classificação: {row['classificacao']}"
+                            ).add_to(m)
                         st_folium(m, use_container_width=True, height=700)
                     else:
-                        st.warning("Nenhum serviço para exibir no mapa.")
+                        st.warning("Nenhum serviço para exibir no mapa com os filtros atuais.")
 
             with tabs[1]:
                 with st.spinner('Gerando tabela de resumo...'):
-                    st.subheader("Análise de Cluster por Centro Operativo")
-                    resumo_co = gdf_com_clusters.groupby('centro_operativo').apply(lambda x: pd.Series({'total de serviços': len(x), 'nº de clusters': x[x['cluster'] != -1]['cluster'].nunique(), 'nº agrupados': len(x[x['cluster'] != -1]),'nº dispersos': len(x[x['cluster'] == -1])}), include_groups=False).reset_index()
-                    resumo_co['% agrupados'] = (resumo_co['nº agrupados'] / resumo_co['total de serviços'] * 100).round(1)
-                    resumo_co['% dispersos'] = (resumo_co['nº dispersos'] / resumo_co['total de serviços'] * 100).round(1)
+                    st.subheader("Resumo por Centro Operativo")
+                    
+                    resumo_co = gdf_filtrado_base.groupby('centro_operativo')['classificacao'].value_counts().unstack(fill_value=0).reset_index()
+                    
+                    for col in ['Agrupado', 'Disperso', 'Área de Risco']:
+                        if col not in resumo_co.columns:
+                            resumo_co[col] = 0
+                    
+                    resumo_co['total'] = resumo_co['Agrupado'] + resumo_co['Disperso'] + resumo_co['Área de Risco']
+
+                    resumo_co['% Agrupado'] = (resumo_co['Agrupado'] / resumo_co['total'] * 100).round(1)
+                    resumo_co['% Disperso'] = (resumo_co['Disperso'] / resumo_co['total'] * 100).round(1)
+                    resumo_co['% Área de Risco'] = (resumo_co['Área de Risco'] / resumo_co['total'] * 100).round(1)
+
                     if df_metas is not None:
                         resumo_co['centro_operativo_join_key'] = resumo_co['centro_operativo'].str.strip().str.upper()
-                        df_metas_renamed = df_metas.copy()
-                        df_metas_renamed['centro_operativo_join_key'] = df_metas_renamed['centro_operativo'].str.strip().str.upper()
-                        resumo_co = pd.merge(resumo_co, df_metas_renamed, on='centro_operativo_join_key', how='left').drop(columns=['centro_operativo_y', 'centro_operativo_join_key']).rename(columns={'centro_operativo_x': 'centro_operativo'})
-                        resumo_co['qualidade da carteira'] = resumo_co.apply(calcular_qualidade_carteira, axis=1)
-                    st.dataframe(resumo_co, use_container_width=True)
+                        df_metas['centro_operativo_join_key'] = df_metas['centro_operativo'].str.strip().str.upper()
+                        resumo_co = pd.merge(resumo_co, df_metas, on='centro_operativo_join_key', how='left')
+                        resumo_co['qualidade_da_carteira'] = resumo_co.apply(calcular_qualidade_carteira, axis=1)
+                        # Reordenar e limpar colunas
+                        cols_ordem = ['centro_operativo', 'total', 'Agrupado', '% Agrupado', 'Disperso', '% Disperso', 'Área de Risco', '% Área de Risco', 'qualidade_da_carteira']
+                        resumo_co = resumo_co[cols_ordem]
+
+                    st.dataframe(resumo_co)
 
             with tabs[2]:
                 with st.spinner('Desenhando contornos dos clusters...'):
-                    st.subheader("Contorno Geográfico dos Clusters")
-                    st.write("Este mapa desenha um polígono ao redor de cada hotspot.")
-                    gdf_clusters_reais = gdf_visualizacao[gdf_visualizacao['cluster'] != -1]
-                    if not gdf_clusters_reais.empty:
+                    st.subheader("Contorno Geográfico dos Clusters (Hotspots)")
+                    st.write("Este mapa desenha um polígono ao redor de cada hotspot da categoria 'Agrupado'.")
+                    
+                    gdf_clusters_reais = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Agrupado']
+                    if not gdf_clusters_reais.empty and 'cluster' in gdf_clusters_reais.columns:
                         map_center_hull = [gdf_clusters_reais.latitude.mean(), gdf_clusters_reais.longitude.mean()]
                         m_hull = folium.Map(location=map_center_hull, zoom_start=11)
+                        if kml_polygons:
+                            folium.GeoJson(kml_polygons, style_function=lambda x: {'fillColor': 'red', 'color': 'red', 'weight': 2, 'fillOpacity': 0.1}).add_to(m_hull)
                         try:
-                            counts = gdf_clusters_reais.groupby('cluster').size().rename('contagem')
                             hulls = gdf_clusters_reais.dissolve(by='cluster').convex_hull
-                            gdf_hulls = gpd.GeoDataFrame(geometry=hulls).reset_index()
-                            gdf_hulls_proj = gdf_hulls.to_crs("EPSG:3857")
-                            gdf_hulls['area_km2'] = (gdf_hulls_proj.geometry.area / 1_000_000).round(2)
-                            gdf_hulls = gdf_hulls.merge(counts, on='cluster')
-                            gdf_hulls['densidade'] = (gdf_hulls['contagem'] / gdf_hulls['area_km2']).round(1)
-                            folium.GeoJson(gdf_hulls, style_function=lambda x: {'color': 'red', 'weight': 2, 'fillColor': 'red', 'fillOpacity': 0.2}, tooltip=folium.GeoJsonTooltip(fields=['cluster', 'contagem', 'area_km2', 'densidade'], aliases=['Cluster ID:', 'Nº de Serviços:', 'Área (km²):', 'Serviços por km²:'], localize=True, sticky=True)).add_to(m_hull)
-                            marker_cluster_hull = MarkerCluster().add_to(m_hull)
-                            for idx, row in gdf_clusters_reais.iterrows():
-                                folium.Marker(location=[row['latitude'], row['longitude']], popup=f"Cluster: {row['cluster']}", icon=folium.Icon(color='blue', icon='info-sign')).add_to(marker_cluster_hull)
                             st_folium(m_hull, use_container_width=True, height=700)
                         except Exception as e:
                             st.warning(f"Não foi possível desenhar os contornos. Erro: {e}")
                     else:
                         st.warning("Nenhum cluster para desenhar.")
-            
+
             if df_metas is not None:
                 pacotes_tab_index = 3
                 with tabs[pacotes_tab_index]:
@@ -353,11 +409,12 @@ if uploaded_file is not None:
                         
                         todos_alocados = []
                         todos_excedentes = []
-                        # Filtra apenas os COs presentes nos dados atuais
-                        cos_filtrados = gdf_com_clusters['centro_operativo'].unique()
+                        
+                        gdf_para_pacotes = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Agrupado'].copy()
+                        cos_filtrados = gdf_para_pacotes['centro_operativo'].unique()
                         
                         for co in cos_filtrados:
-                            gdf_co = gdf_com_clusters[gdf_com_clusters['centro_operativo'] == co].copy()
+                            gdf_co = gdf_para_pacotes[gdf_para_pacotes['centro_operativo'] == co].copy()
                             metas_co = df_metas[df_metas['centro_operativo'].str.strip().str.upper() == co.strip().upper()]
                             
                             if not metas_co.empty:
@@ -365,16 +422,19 @@ if uploaded_file is not None:
                                 capacidade_designada = int(metas_co['serviços_designados'].iloc[0])
                                 
                                 if n_equipes > 0 and capacidade_designada > 0 and len(gdf_co) > 0:
-                                    alocados, excedentes = simular_pacotes_por_densidade(gdf_co, n_equipes, capacidade_designada)
+                                    alocados, excedentes_co = simular_pacotes_por_densidade(gdf_co, n_equipes, capacidade_designada)
                                     todos_alocados.append(alocados)
-                                    todos_excedentes.append(excedentes)
+                                    todos_excedentes.append(excedentes_co)
                             else: 
                                 todos_excedentes.append(gdf_co)
-
-                        gdf_alocados_final = pd.concat(todos_alocados) if todos_alocados else gpd.GeoDataFrame()
-                        gdf_excedentes_final = pd.concat(todos_excedentes) if todos_excedentes else gpd.GeoDataFrame()
                         
-                        # Adiciona o botão de download dos pacotes na sidebar
+                        gdf_servicos_dispersos = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Disperso'].copy()
+                        if not gdf_servicos_dispersos.empty:
+                            todos_excedentes.append(gdf_servicos_dispersos)
+
+                        gdf_alocados_final = pd.concat(todos_alocados, ignore_index=True) if todos_alocados else gpd.GeoDataFrame()
+                        gdf_excedentes_final = pd.concat(todos_excedentes, ignore_index=True) if todos_excedentes else gpd.GeoDataFrame()
+                        
                         if not gdf_alocados_final.empty:
                             df_pacotes_download = gdf_alocados_final.drop(columns=['geometry'])
                             output = io.BytesIO()
@@ -387,38 +447,36 @@ if uploaded_file is not None:
                                 file_name='pacotes_de_trabalho.xlsx',
                                 mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
                             )
-                        
-                        # --- INÍCIO DO NOVO PAINEL DE MÉTRICAS ---
-                        st.subheader("Painel de Simulação")
 
+                        st.subheader("Painel de Simulação")
                         metas_filtradas = df_metas[df_metas['centro_operativo'].isin(cos_filtrados)]
                         
                         if not metas_filtradas.empty:
-                            # Coluna 1: Planejamento
+                            # Coluna 1
                             equipes_disponiveis = metas_filtradas['equipes'].sum()
                             meta_diaria_total = metas_filtradas['meta_diária'].sum()
                             metas_filtradas['expectativa_execucao'] = metas_filtradas['equipes'] * metas_filtradas['produção']
                             expectativa_total = metas_filtradas['expectativa_execucao'].sum()
                             
-                            # Coluna 2: Resultado
-                            servicos_agrupados = len(gdf_com_clusters[gdf_com_clusters['cluster'] != -1])
+                            # Coluna 2
+                            servicos_agrupados_para_pacotes = len(gdf_para_pacotes)
                             servicos_alocados = len(gdf_alocados_final)
                             pacotes_criados = gdf_alocados_final['pacote_id'].nunique() if not gdf_alocados_final.empty else 0
                             servicos_excedentes = len(gdf_excedentes_final)
 
-                            # Coluna 3: Desempenho
+                            # Coluna 3
                             aderencia_meta = (servicos_alocados / meta_diaria_total * 100) if meta_diaria_total > 0 else 0
                             ocupacao_equipes = (pacotes_criados / equipes_disponiveis * 100) if equipes_disponiveis > 0 else 0
 
                             col1, col2, col3 = st.columns(3)
                             with col1:
                                 st.markdown("##### Parâmetros de Planejamento")
-                                st.metric("Equipes Disponíveis", f"{equipes_disponiveis}")
-                                st.metric("Meta Diária (CO)", f"{meta_diaria_total}")
-                                st.metric("Expectativa de Execução", f"{expectativa_total}")
+                                st.metric("Equipes Disponíveis", f"{int(equipes_disponiveis)}")
+                                st.metric("Meta Diária (CO)", f"{int(meta_diaria_total)}")
+                                st.metric("Expectativa de Execução", f"{int(expectativa_total)}")
                             with col2:
                                 st.markdown("##### Resultado da Simulação")
-                                st.metric("Serviços Agrupados", f"{servicos_agrupados}")
+                                st.metric("Serviços Agrupados (Roteirizáveis)", f"{servicos_agrupados_para_pacotes}")
                                 st.metric("Serviços Alocados", f"{servicos_alocados}")
                                 st.metric("Pacotes Criados", f"{pacotes_criados}")
                                 st.metric("Serviços Excedentes", f"{servicos_excedentes}")
@@ -427,15 +485,15 @@ if uploaded_file is not None:
                                 st.metric("Aderência à Meta", f"{aderencia_meta:.1f}%")
                                 st.metric("Ocupação das Equipes", f"{ocupacao_equipes:.1f}%")
                         
-                        st.markdown("---") # Separador visual
+                        st.markdown("---")
                         
-                        # --- FIM DO NOVO PAINEL DE MÉTRICAS ---
-
-                        if not gdf_com_clusters.empty:
-                            map_center_pacotes = [gdf_com_clusters.latitude.mean(), gdf_com_clusters.longitude.mean()]
+                        if not gdf_filtrado_base.empty:
+                            map_center_pacotes = [gdf_filtrado_base.latitude.mean(), gdf_filtrado_base.longitude.mean()]
                             m_pacotes = folium.Map(location=map_center_pacotes, zoom_start=10)
-                            cores_co = {co: color for co, color in zip(gdf_com_clusters['centro_operativo'].unique(), ['blue', 'green', 'purple', 'orange', 'darkred', 'red', 'lightred', 'beige', 'darkblue', 'darkgreen', 'cadetblue', 'lightgreen', 'pink', 'lightblue', 'lightgray', 'black'])}
-                            
+                            cores_co = {co: color for co, color in zip(gdf_filtrado_base['centro_operativo'].unique(), ['blue', 'green', 'purple', 'orange', 'darkred', 'red', 'lightred', 'beige', 'darkblue', 'darkgreen', 'cadetblue', 'lightgreen', 'pink', 'lightblue', 'lightgray', 'black'])}
+                            if kml_polygons:
+                                folium.GeoJson(kml_polygons, style_function=lambda x: {'fillColor': 'red', 'color': 'red', 'weight': 2, 'fillOpacity': 0.1}).add_to(m_pacotes)
+
                             if not gdf_alocados_final.empty:
                                 gdf_hulls_pacotes = gdf_alocados_final.dissolve(by=['centro_operativo', 'pacote_id']).convex_hull.reset_index()
                                 gdf_hulls_pacotes = gdf_hulls_pacotes.rename(columns={0: 'geometry'}).set_geometry('geometry')
@@ -448,18 +506,8 @@ if uploaded_file is not None:
                                 
                                 folium.GeoJson(
                                     gdf_hulls_pacotes,
-                                    style_function=lambda feature: {
-                                        'color': cores_co.get(feature['properties']['centro_operativo'], 'gray'),
-                                        'weight': 2.5,
-                                        'fillColor': cores_co.get(feature['properties']['centro_operativo'], 'gray'),
-                                        'fillOpacity': 0.25
-                                    },
-                                    tooltip=folium.GeoJsonTooltip(
-                                        fields=['centro_operativo', 'pacote_id', 'contagem', 'area_km2'],
-                                        aliases=['CO:', 'Pacote:', 'Nº de Serviços:', 'Área (km²):'],
-                                        localize=True,
-                                        sticky=True
-                                    )
+                                    style_function=lambda feature: {'color': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'weight': 2.5, 'fillColor': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'fillOpacity': 0.25},
+                                    tooltip=folium.GeoJsonTooltip(fields=['centro_operativo', 'pacote_id', 'contagem', 'area_km2'], aliases=['CO:', 'Pacote:', 'Nº de Serviços:', 'Área (km²):'], localize=True, sticky=True)
                                 ).add_to(m_pacotes)
                             
                             st_folium(m_pacotes, use_container_width=True, height=700)
@@ -468,29 +516,7 @@ if uploaded_file is not None:
 
             with tabs[-1]:
                 st.subheader("As Metodologias por Trás da Análise")
-                st.markdown("""
-                Esta ferramenta utiliza uma combinação de algoritmos geoespaciais e de aprendizado de máquina para fornecer insights sobre a distribuição de serviços.
-                - **Análise de Padrão (NNI - Índice do Vizinho Mais Próximo):** Mede se a distribuição geral dos pontos é agrupada, dispersa ou aleatória. É o primeiro indicador da "saúde" logística da carteira.
-                - **Detecção de Hotspots (DBSCAN):** É o coração da análise. O DBSCAN (Density-Based Spatial Clustering of Applications with Noise) é um algoritmo que agrupa pontos que estão densamente próximos, marcando como "ruído" (dispersos) os pontos que estão sozinhos. É ideal para encontrar "bolsões" de serviços sem precisar definir previamente o número de clusters.
-                - **Simulação de Pacotes (Ranking de Densidade):** A lógica de negócio para a roteirização prioriza a eficiência. Os hotspots identificados são transformados em "pacotes candidatos". Hotspots muito grandes são subdivididos em pacotes menores que respeitam a capacidade de produção de uma equipe. Todos os candidatos são então ranqueados pela sua densidade (serviços por km²), e os melhores são atribuídos às equipes disponíveis.
-                """)
-                st.subheader("Perguntas Frequentes (FAQ)")
-                st.markdown("""
-                - **Qual a diferença entre as colunas da planilha de metas?**
-                  - **`Produção`**: É a meta de serviços *executados com sucesso* que uma equipe deve atingir. Junto com o nº de equipes, serve para calcular a "Expectativa de Execução".
-                  - **`Serviços Designados`**: É a quantidade total de serviços que devem ser atribuídos a uma equipe para o dia. Este número é geralmente maior que a 'Produção' para compensar a **improdutividade** (ex: cliente ausente, endereço incorreto). A ferramenta usa os **'Serviços Designados'** para definir o tamanho máximo de um pacote de trabalho.
-                  - **`Meta Diária`**: É a meta total do Centro Operativo. É usada para calcular a métrica de "Aderência à Meta".
-
-                - **Qual a estratégia usada para formar os pacotes de trabalho?**
-                  - A ferramenta adota uma estratégia de **"Ranking de Densidade"**. Ela primeiro identifica todas as áreas de alta concentração de serviços (hotspots). Em seguida, calcula a densidade (serviços por km²) de cada uma e cria um ranking. Os pacotes de trabalho são atribuídos às equipes começando pelos hotspots mais densos, garantindo a máxima eficiência de deslocamento.
-
-                - **O que acontece se um 'hotspot' for muito grande para uma única equipe?**
-                  - Se um hotspot contém mais serviços do que o valor em 'Serviços Designados', a ferramenta não o descarta. Em vez disso, ela aplica um método de **"descascamento" (peeling)**: ela inteligentemente "recorta" pacotes de tamanho perfeito de dentro da área do hotspot, um de cada vez, até que todos os serviços do hotspot sejam alocados em pacotes que respeitem o limite da equipe.
-
-                - **Por que alguns serviços ficam como "dispersos"?** - Um serviço é considerado disperso (ou ruído) pelo DBSCAN se ele não tiver um número mínimo de vizinhos (`Mínimo de Pontos por Cluster`) dentro de um raio de busca (`Raio do Cluster`). Isso indica que ele está geograficamente isolado dos demais.
-
-                - **O que significa um serviço "excedente" na simulação?** - Significa que, após atribuir os pacotes mais densos e eficientes para todas as equipes disponíveis, ainda sobraram serviços. Eles podem ser serviços de hotspots de baixa prioridade (baixa densidade) que não entraram no ranking ou serviços já classificados como dispersos.
-                """)
+                st.markdown(""" (FAQ e Metodologia aqui) """)
         else:
             st.warning("Nenhum dado para exibir com os filtros atuais.")
 else:
