@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2" xmlns:kml="http://www.opengis.net/kml/2.2" xmlns:atom="http://www.w3.org/2005/Atom">
+<Document>
+	<name>Lagos_CaboFrio_Vinhateiro - Pontilhão.kml</name>
+	<StyleMap id="msn_ylw-pushpin000021000010">
+		<Pair>
+			<key>normal</key>
+			<styleUrl>#sn_ylw-pushpin012101010</styleUrl>
+		</Pair>
+		<Pair>
+			<key>highlight</key>
+			<styleUrl>#sh_ylw-pushpin00000200000</styleUrl>
+		</Pair>
+	</StyleMap>
+	<Style id="sn_ylw-pushpin012101010">
+		<IconStyle>
+			<scale>1.1</scale>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+			</Icon>
+			<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+		</IconStyle>
+		<LineStyle>
+			<color>ff00ffff</color>
+		</LineStyle>
+		<PolyStyle>
+			<color>4c00ffff</color>
+		</PolyStyle>
+	</Style>
+	<Style id="sh_ylw-pushpin00000200000">
+		<IconStyle>
+			<scale>1.3</scale>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+			</Icon>
+			<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+		</IconStyle>
+		<LineStyle>
+			<color>ff00ffff</color>
+		</LineStyle>
+		<PolyStyle>
+			<color>4c00ffff</color>
+		</PolyStyle>
+	</Style>
+	<Placemark>
+		<name>Vinhateiro - Pontilhão</name>
+		<visibility>0</visibility>
+		<styleUrl>#msn_ylw-pushpin000021000010</styleUrl>
+		<Polygon>
+			<tessellate>1</tessellate>
+			<outerBoundaryIs>
+				<LinearRing>
+					<coordinates>
+						-42.04104336857361,-22.8536808937966,0 -42.041164979711,-22.85333093337718,0 -42.04104611734655,-22.85305431419261,0 -42.04090030738954,-22.85267123410165,0 -42.04200369798022,-22.8526656449407,0 -42.04186846820331,-22.85216582736094,0 -42.04179414831085,-22.85183101427309,0 -42.0420981176222,-22.85164074270742,0 -42.04225489130765,-22.85159069815654,0 -42.04240452652515,-22.85149171277512,0 -42.04264698372471,-22.85159285420569,0 -42.04265454257784,-22.85181405583945,0 -42.04301497602947,-22.85138015394687,0 -42.04342007399672,-22.85117772507597,0 -42.04372201370376,-22.85146733813802,0 -42.04391624607978,-22.85161594056424,0 -42.04303280354903,-22.85362933058514,0 -42.04104336857361,-22.8536808937966,0 
+					</coordinates>
+				</LinearRing>
+			</outerBoundaryIs>
+		</Polygon>
+	</Placemark>
+</Document>
+</kml>

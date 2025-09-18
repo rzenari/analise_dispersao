@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2" xmlns:kml="http://www.opengis.net/kml/2.2" xmlns:atom="http://www.w3.org/2005/Atom">
+<Document>
+	<name>Revisão Cabo Frio - Itajuru.kml</name>
+	<Style id="s_ylw-pushpin_hl">
+		<IconStyle>
+			<scale>1.3</scale>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+			</Icon>
+			<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+		</IconStyle>
+	</Style>
+	<Style id="s_ylw-pushpin">
+		<IconStyle>
+			<scale>1.1</scale>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+			</Icon>
+			<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+		</IconStyle>
+	</Style>
+	<StyleMap id="m_ylw-pushpin">
+		<Pair>
+			<key>normal</key>
+			<styleUrl>#s_ylw-pushpin</styleUrl>
+		</Pair>
+		<Pair>
+			<key>highlight</key>
+			<styleUrl>#s_ylw-pushpin_hl</styleUrl>
+		</Pair>
+	</StyleMap>
+	<Placemark>
+		<name>Revisão Cabo Frio - Itajuru</name>
+		<styleUrl>#m_ylw-pushpin</styleUrl>
+		<Polygon>
+			<tessellate>1</tessellate>
+			<outerBoundaryIs>
+				<LinearRing>
+					<coordinates>
+						-42.02506909810114,-22.87919291834361,0 -42.02514191511273,-22.88005489918312,0 -42.02489840515965,-22.88017376677513,0 -42.02466383284492,-22.88007113428652,0 -42.02439709366208,-22.88022901374463,0 -42.02441122071403,-22.88070688024204,0 -42.02374136617632,-22.88050806800271,0 -42.02360582507868,-22.88040700846365,0 -42.02347219445238,-22.8803561167586,0 -42.02352369143433,-22.88001695032782,0 -42.02383552755514,-22.87983128327406,0 -42.02392387303391,-22.87926738036121,0 -42.0236947946576,-22.87898718587583,0 -42.02366716989396,-22.8786772373464,0 -42.02416267258055,-22.87850930709319,0 -42.02424287859996,-22.87847641291368,0 -42.02487901209985,-22.87842901851128,0 -42.02506909810114,-22.87919291834361,0 
+					</coordinates>
+				</LinearRing>
+			</outerBoundaryIs>
+		</Polygon>
+	</Placemark>
+</Document>
+</kml>

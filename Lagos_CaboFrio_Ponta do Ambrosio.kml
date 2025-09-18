@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2" xmlns:kml="http://www.opengis.net/kml/2.2" xmlns:atom="http://www.w3.org/2005/Atom">
+<Document>
+	<name>Lagos_CaboFrio_Ponta do Ambrosio.kml</name>
+	<StyleMap id="msn_ylw-pushpin000021000010">
+		<Pair>
+			<key>normal</key>
+			<styleUrl>#sn_ylw-pushpin012101010</styleUrl>
+		</Pair>
+		<Pair>
+			<key>highlight</key>
+			<styleUrl>#sh_ylw-pushpin00000200000</styleUrl>
+		</Pair>
+	</StyleMap>
+	<Style id="sn_ylw-pushpin012101010">
+		<IconStyle>
+			<scale>1.1</scale>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+			</Icon>
+			<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+		</IconStyle>
+		<LineStyle>
+			<color>ff00ffff</color>
+		</LineStyle>
+		<PolyStyle>
+			<color>4c00ffff</color>
+		</PolyStyle>
+	</Style>
+	<Style id="sh_ylw-pushpin00000200000">
+		<IconStyle>
+			<scale>1.3</scale>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+			</Icon>
+			<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+		</IconStyle>
+		<LineStyle>
+			<color>ff00ffff</color>
+		</LineStyle>
+		<PolyStyle>
+			<color>4c00ffff</color>
+		</PolyStyle>
+	</Style>
+	<Placemark>
+		<name>Ponta do Ambrosio</name>
+		<visibility>0</visibility>
+		<styleUrl>#msn_ylw-pushpin000021000010</styleUrl>
+		<Polygon>
+			<tessellate>1</tessellate>
+			<outerBoundaryIs>
+				<LinearRing>
+					<coordinates>
+						-42.04976420121989,-22.86327677133579,0 -42.04976277057592,-22.8635154202893,0 -42.04955623498839,-22.86388646418651,0 -42.04981564679869,-22.86403673537829,0 -42.04974760398745,-22.86418599098262,0 -42.04947469484094,-22.86429624879655,0 -42.04914150490217,-22.86406063959102,0 -42.04891333052841,-22.8643659307591,0 -42.0486594669086,-22.86422294907462,0 -42.04826873820982,-22.86426615895935,0 -42.04825192445936,-22.86428611375996,0 -42.0480745294666,-22.86399004548116,0 -42.04753219748434,-22.86410244643945,0 -42.0471925102794,-22.86419652348518,0 -42.04700516940725,-22.86415776653164,0 -42.04699560061145,-22.86387631742795,0 -42.04706083148249,-22.86376160635943,0 -42.0475197026385,-22.86360184033629,0 -42.0473160500321,-22.86347881083098,0 -42.04740985370982,-22.86328389816998,0 -42.04760760758619,-22.86307640203844,0 -42.04780447645736,-22.86222465522226,0 -42.04808305055735,-22.86180933274182,0 -42.04882001849244,-22.86237854077427,0 -42.0490877038762,-22.86236925504117,0 -42.04939760735631,-22.86207397052015,0 -42.0499201102834,-22.86243529210649,0 -42.04976420121989,-22.86327677133579,0 
+					</coordinates>
+				</LinearRing>
+			</outerBoundaryIs>
+		</Polygon>
+	</Placemark>
+</Document>
+</kml>

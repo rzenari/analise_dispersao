@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2" xmlns:kml="http://www.opengis.net/kml/2.2" xmlns:atom="http://www.w3.org/2005/Atom">
+<Document>
+	<name>Revisão Cabo Frio - Jacaré parte I.kml</name>
+	<StyleMap id="m_ylw-pushpin">
+		<Pair>
+			<key>normal</key>
+			<styleUrl>#s_ylw-pushpin</styleUrl>
+		</Pair>
+		<Pair>
+			<key>highlight</key>
+			<styleUrl>#s_ylw-pushpin_hl</styleUrl>
+		</Pair>
+	</StyleMap>
+	<Style id="s_ylw-pushpin">
+		<IconStyle>
+			<scale>1.1</scale>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+			</Icon>
+			<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+		</IconStyle>
+	</Style>
+	<Style id="s_ylw-pushpin_hl">
+		<IconStyle>
+			<scale>1.3</scale>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+			</Icon>
+			<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+		</IconStyle>
+	</Style>
+	<Placemark>
+		<name>Revisão Cabo Frio - Jacaré parte I</name>
+		<styleUrl>#m_ylw-pushpin</styleUrl>
+		<Polygon>
+			<tessellate>1</tessellate>
+			<outerBoundaryIs>
+				<LinearRing>
+					<coordinates>
+						-42.0159179046587,-22.86589949245355,0 -42.01613638842294,-22.86548522367641,0 -42.0157160141894,-22.86514019819422,0 -42.01539542398791,-22.86502110432394,0 -42.01322404234508,-22.86347785418801,0 -42.01337981742083,-22.86336322783191,0 -42.01446222101354,-22.86297366261299,0 -42.01517168502408,-22.86298442480836,0 -42.01577789756576,-22.86337653791811,0 -42.01661420494013,-22.86231803284927,0 -42.01680964562349,-22.86260151757671,0 -42.0167373370509,-22.86316683051338,0 -42.01751117985224,-22.86360706730423,0 -42.01862698540568,-22.86474501597381,0 -42.01980900764099,-22.86559540285377,0 -42.0205311369199,-22.86467625227345,0 -42.02138190644988,-22.86510787695496,0 -42.0210135588511,-22.86584697282021,0 -42.02196109123639,-22.86626131900779,0 -42.02198016175345,-22.86627447479427,0 -42.02427852752787,-22.86788821137399,0 -42.02514311733516,-22.86888018105871,0 -42.02503266198458,-22.86972705348028,0 -42.02559348633649,-22.87040638889406,0 -42.02457846840903,-22.87117199668615,0 -42.02402803712874,-22.87067460159019,0 -42.02281573269422,-22.87169480495576,0 -42.02237056868975,-22.87058694917316,0 -42.02186788693085,-22.86982893125273,0 -42.02057352444953,-22.86886252227953,0 -42.01894909328553,-22.86714067593152,0 -42.01783212199436,-22.8664665396032,0 -42.0167048359822,-22.86604268077468,0 -42.0159179046587,-22.86589949245355,0 
+					</coordinates>
+				</LinearRing>
+			</outerBoundaryIs>
+		</Polygon>
+	</Placemark>
+</Document>
+</kml>

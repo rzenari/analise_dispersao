@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2" xmlns:kml="http://www.opengis.net/kml/2.2" xmlns:atom="http://www.w3.org/2005/Atom">
+<Document>
+	<name>INCLUIR - Jardim Esperança Meio.kml</name>
+	<Style id="sh_ylw-pushpin">
+		<IconStyle>
+			<scale>1.3</scale>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+			</Icon>
+			<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+		</IconStyle>
+		<BalloonStyle>
+		</BalloonStyle>
+		<PolyStyle>
+			<color>800000ff</color>
+		</PolyStyle>
+	</Style>
+	<Style id="sn_ylw-pushpin">
+		<IconStyle>
+			<scale>1.1</scale>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+			</Icon>
+			<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+		</IconStyle>
+		<BalloonStyle>
+		</BalloonStyle>
+		<PolyStyle>
+			<color>800000ff</color>
+		</PolyStyle>
+	</Style>
+	<StyleMap id="msn_ylw-pushpin">
+		<Pair>
+			<key>normal</key>
+			<styleUrl>#sn_ylw-pushpin</styleUrl>
+		</Pair>
+		<Pair>
+			<key>highlight</key>
+			<styleUrl>#sh_ylw-pushpin</styleUrl>
+		</Pair>
+	</StyleMap>
+	<Placemark>
+		<name>INCLUIR - Jardim Esperança Meio</name>
+		<styleUrl>#msn_ylw-pushpin</styleUrl>
+		<Polygon>
+			<tessellate>1</tessellate>
+			<outerBoundaryIs>
+				<LinearRing>
+					<coordinates>
+						-42.02613904996648,-22.83370853117401,0 -42.02785577415895,-22.83223429633083,0 -42.03508597826048,-22.83634315522038,0 -42.03678864290211,-22.83626952214303,0 -42.03544033512122,-22.83731359201697,0 -42.03598030798289,-22.83792058234678,0 -42.0355225879868,-22.83907658178025,0 -42.03454550218251,-22.83853960774817,0 -42.03533302237072,-22.84293447449002,0 -42.03504802098434,-22.8430587058522,0 -42.03399801550371,-22.84158806071144,0 -42.03322293280931,-22.84103645084514,0 -42.03197712852589,-22.84260996697935,0 -42.03066448183913,-22.84417305501403,0 -42.02910473844385,-22.84530753650746,0 -42.02830136133265,-22.84435608987813,0 -42.02730454538021,-22.84374555706687,0 -42.02650897064223,-22.84246806532396,0 -42.02603874575033,-22.84183254643007,0 -42.02577242579885,-22.84116166645446,0 -42.02804513704862,-22.83781308736326,0 -42.02788186252652,-22.83767326019939,0 -42.02559206686543,-22.84081597314431,0 -42.02545475361745,-22.84060527131823,0 -42.02469093097507,-22.84017390813815,0 -42.02057401464628,-22.84006631952525,0 -42.01959739122681,-22.83965889016336,0 -42.01905052031852,-22.83863127551316,0 -42.01895660541123,-22.83772549969531,0 -42.01802473257656,-22.83645739416364,0 -42.01700405090288,-22.83594162010338,0 -42.01941490634771,-22.83437916573134,0 -42.02324461799866,-22.83682567099941,0 -42.0233723191416,-22.83646908378084,0 -42.0246809285409,-22.8366603327668,0 -42.02302688930938,-22.83005414335961,0 -42.02613904996648,-22.83370853117401,0 
+					</coordinates>
+				</LinearRing>
+			</outerBoundaryIs>
+		</Polygon>
+	</Placemark>
+</Document>
+</kml>

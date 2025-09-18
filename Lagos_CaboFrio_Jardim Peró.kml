@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2" xmlns:kml="http://www.opengis.net/kml/2.2" xmlns:atom="http://www.w3.org/2005/Atom">
+<Document>
+	<name>Lagos_CaboFrio_Jardim Peró.kml</name>
+	<StyleMap id="msn_ylw-pushpin000021000010">
+		<Pair>
+			<key>normal</key>
+			<styleUrl>#sn_ylw-pushpin012101010</styleUrl>
+		</Pair>
+		<Pair>
+			<key>highlight</key>
+			<styleUrl>#sh_ylw-pushpin00000200000</styleUrl>
+		</Pair>
+	</StyleMap>
+	<Style id="sn_ylw-pushpin012101010">
+		<IconStyle>
+			<scale>1.1</scale>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+			</Icon>
+			<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+		</IconStyle>
+		<LineStyle>
+			<color>ff00ffff</color>
+		</LineStyle>
+		<PolyStyle>
+			<color>4c00ffff</color>
+		</PolyStyle>
+	</Style>
+	<Style id="sh_ylw-pushpin00000200000">
+		<IconStyle>
+			<scale>1.3</scale>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+			</Icon>
+			<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+		</IconStyle>
+		<LineStyle>
+			<color>ff00ffff</color>
+		</LineStyle>
+		<PolyStyle>
+			<color>4c00ffff</color>
+		</PolyStyle>
+	</Style>
+	<Placemark>
+		<name>Jardim Peró</name>
+		<visibility>0</visibility>
+		<styleUrl>#msn_ylw-pushpin000021000010</styleUrl>
+		<Polygon>
+			<tessellate>1</tessellate>
+			<outerBoundaryIs>
+				<LinearRing>
+					<coordinates>
+						-42.01383346624114,-22.83420762400665,0 -42.01629254000525,-22.8361483773293,0 -42.01668895267714,-22.8359777759314,0 -42.01783114507808,-22.83639739592739,0 -42.01866051780611,-22.83742035631894,0 -42.01910650249225,-22.83942988224906,0 -42.01706017051822,-22.84151522986049,0 -42.01286607233441,-22.84540599164949,0 -42.01057112730774,-22.84336540565642,0 -42.00913996099447,-22.84422791480539,0 -42.00850421601825,-22.84447393300143,0 -42.00790240694269,-22.8434740379549,0 -42.0068586262108,-22.84357576117711,0 -42.00681769586203,-22.84355727566422,0 -42.00755208233764,-22.8426611221045,0 -42.00759334896059,-22.84234534186669,0 -42.00774108447688,-22.8411560841585,0 -42.00782897941665,-22.83997185898769,0 -42.01383346624114,-22.83420762400665,0 
+					</coordinates>
+				</LinearRing>
+			</outerBoundaryIs>
+		</Polygon>
+	</Placemark>
+</Document>
+</kml>

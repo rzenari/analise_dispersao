@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2" xmlns:kml="http://www.opengis.net/kml/2.2" xmlns:atom="http://www.w3.org/2005/Atom">
+<Document>
+	<name>Revisão Arraial do Cabo - Morro da Cabocla.kml</name>
+	<Style id="s_ylw-pushpin">
+		<IconStyle>
+			<scale>1.1</scale>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+			</Icon>
+			<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+		</IconStyle>
+	</Style>
+	<Style id="s_ylw-pushpin_hl">
+		<IconStyle>
+			<scale>1.3</scale>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+			</Icon>
+			<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+		</IconStyle>
+	</Style>
+	<StyleMap id="m_ylw-pushpin">
+		<Pair>
+			<key>normal</key>
+			<styleUrl>#s_ylw-pushpin</styleUrl>
+		</Pair>
+		<Pair>
+			<key>highlight</key>
+			<styleUrl>#s_ylw-pushpin_hl</styleUrl>
+		</Pair>
+	</StyleMap>
+	<Placemark>
+		<name>Revisão Arraial do Cabo - Morro da Cabocla</name>
+		<styleUrl>#m_ylw-pushpin</styleUrl>
+		<Polygon>
+			<tessellate>1</tessellate>
+			<outerBoundaryIs>
+				<LinearRing>
+					<coordinates>
+						-42.02342790417854,-22.96285704171089,0 -42.02407265865266,-22.96349606979477,0 -42.02457269061252,-22.96435613153836,0 -42.02464742038631,-22.96573852904016,0 -42.02388712059206,-22.96627473773282,0 -42.0232474855253,-22.9659549753081,0 -42.02287659576264,-22.9657943412162,0 -42.0223182833597,-22.9657448310938,0 -42.02213877288596,-22.96572997803139,0 -42.021842086311,-22.96612462179651,0 -42.02136714921537,-22.96691890326314,0 -42.02099045875379,-22.96740777931451,0 -42.02111336751158,-22.96766957398271,0 -42.0204354418996,-22.96748237712136,0 -42.0196602254395,-22.96812580947433,0 -42.01899238386769,-22.96805547169286,0 -42.01771210245096,-22.96793398052713,0 -42.01858833471822,-22.96635934368819,0 -42.01858108381168,-22.96332385500857,0 -42.02342790417854,-22.96285704171089,0 
+					</coordinates>
+				</LinearRing>
+			</outerBoundaryIs>
+		</Polygon>
+	</Placemark>
+</Document>
+</kml>
