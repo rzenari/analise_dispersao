@@ -403,11 +403,16 @@ if uploaded_file is not None:
                     n_risco = len(gdf_risco)
                     n_laranja = len(gdf_laranja)
                     
+                    p_agrupados = (n_agrupados / total_servicos * 100) if total_servicos > 0 else 0
+                    p_dispersos = (n_dispersos / total_servicos * 100) if total_servicos > 0 else 0
+                    p_risco = (n_risco / total_servicos * 100) if total_servicos > 0 else 0
+                    p_laranja = (n_laranja / total_servicos * 100) if total_servicos > 0 else 0
+                    
                     col1, col2, col3, col4 = st.columns(4)
-                    col1.metric("Nº Agrupados", f"{n_agrupados}", f"{(n_agrupados/total_servicos*100):.1f}%")
-                    col2.metric("Nº Dispersos", f"{n_dispersos}", f"{(n_dispersos/total_servicos*100):.1f}%")
-                    col3.metric("Nº em Área de Risco", f"{n_risco}", f"{(n_risco/total_servicos*100):.1f}%")
-                    col4.metric("Nº em Área Laranja", f"{n_laranja}", f"{(n_laranja/total_servicos*100):.1f}%")
+                    col1.metric("Nº Agrupados", f"{n_agrupados}", f"{p_agrupados:.1f}%")
+                    col2.metric("Nº Dispersos", f"{n_dispersos}", f"{p_dispersos:.1f}%")
+                    col3.metric("Nº em Área de Risco", f"{n_risco}", f"{p_risco:.1f}%")
+                    col4.metric("Nº em Área Laranja", f"{n_laranja}", f"{p_laranja:.1f}%")
 
                     st.subheader(f"Mapa Interativo")
                     if not gdf_visualizacao.empty:
