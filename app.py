@@ -30,18 +30,18 @@ st.write("Faça o upload da sua planilha de cortes para analisar a distribuiçã
 # ==============================================================================
 
 @st.cache_data
-def carregar_kmls(pasta_projeto):
+def carregar_kmls(pasta_projeto, buffer_distancia_m=300):
     """
-    Varre a pasta do projeto, encontra todos os arquivos .kml e .kmz,
-    lê, tenta corrigir geometrias inválidas, unifica as válidas
-    e retorna um log de depuração.
+    Varre a pasta, lê arquivos .kml e .kmz, corrige geometrias,
+    cria uma área de risco unificada e uma "área laranja" de buffer.
+    Retorna as geometrias e um log de depuração.
     """
     kml_files = glob.glob(os.path.join(pasta_projeto, '*.kml'))
     kmz_files = glob.glob(os.path.join(pasta_projeto, '*.kmz'))
     all_gis_files = kml_files + kmz_files
 
     if not all_gis_files:
-        return None, pd.DataFrame([{'Arquivo': 'Nenhum arquivo .kml ou .kmz encontrado', 'Status': 'N/A'}])
+        return None, None, pd.DataFrame([{'Arquivo': 'Nenhum arquivo .kml ou .kmz encontrado', 'Status': 'N/A'}])
     
     debug_log = []
     poligonos_validos = []
@@ -83,14 +83,20 @@ def carregar_kmls(pasta_projeto):
             debug_log.append({'Arquivo': os.path.basename(gis_file), 'Status': '❌ Falha', 'Erro': str(e)})
 
     if not poligonos_validos:
-        return None, pd.DataFrame(debug_log)
+        return None, None, pd.DataFrame(debug_log)
 
-    geometria_unificada = gpd.GeoSeries(poligonos_validos).unary_union
-    return geometria_unificada, pd.DataFrame(debug_log)
+    geometria_risco = gpd.GeoSeries(poligonos_validos, crs="EPSG:4326").unary_union
+    
+    geometria_risco_proj = gpd.GeoSeries([geometria_risco], crs="EPSG:4326").to_crs("EPSG:3857")
+    buffer_grande = geometria_risco_proj.buffer(buffer_distancia_m)
+    geometria_laranja_proj = buffer_grande.difference(geometria_risco_proj)
+    geometria_laranja = gpd.GeoSeries(geometria_laranja_proj, crs="EPSG:3857").to_crs("EPSG:4326").unary_union
+
+    return geometria_risco, geometria_laranja, pd.DataFrame(debug_log)
 
 
 def carregar_dados_completos(arquivo_enviado):
-    """Lê o arquivo completo com todas as colunas, que será a fonte única de dados."""
+    """Lê o arquivo completo com todas as colunas."""
     arquivo_enviado.seek(0)
     
     def processar_dataframe(df):
@@ -251,7 +257,7 @@ if uploaded_file is not None:
     if df_completo_original is not None:
         st.sidebar.success(f"{len(df_completo_original)} registros carregados!")
         
-        kml_polygons, kml_debug_log = carregar_kmls('.')
+        kml_risco, kml_laranja, kml_debug_log = carregar_kmls('.')
         if kml_debug_log is not None:
             sucesso_count = (kml_debug_log['Status'] == '✅ Sucesso').sum()
             st.sidebar.info(f"{sucesso_count} arquivo(s) KML/KMZ carregado(s) com sucesso.")
@@ -288,11 +294,18 @@ if uploaded_file is not None:
 
         gdf_filtrado_base['classificacao'] = 'A ser definido'
         gdf_risco = gpd.GeoDataFrame()
+        gdf_laranja = gpd.GeoDataFrame()
 
-        if kml_polygons is not None:
-            indices_risco = gdf_filtrado_base.within(kml_polygons)
+        if kml_risco is not None:
+            indices_risco = gdf_filtrado_base.within(kml_risco)
             gdf_filtrado_base.loc[indices_risco, 'classificacao'] = 'Área de Risco'
             gdf_risco = gdf_filtrado_base[indices_risco].copy()
+
+        if kml_laranja is not None:
+            gdf_temp_para_laranja = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'A ser definido']
+            indices_laranja = gdf_temp_para_laranja.within(kml_laranja)
+            gdf_filtrado_base.loc[indices_laranja[indices_laranja].index, 'classificacao'] = 'Área Laranja'
+            gdf_laranja = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Área Laranja'].copy()
 
         gdf_para_analise = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'A ser definido'].copy()
         
@@ -341,9 +354,7 @@ if uploaded_file is not None:
         
         if not gdf_filtrado_base.empty:
             st.sidebar.markdown("### Filtro de Visualização do Mapa")
-            opcoes_visualizacao = ["Todos", "Agrupado", "Disperso"]
-            if not gdf_risco.empty:
-                opcoes_visualizacao.append("Área de Risco")
+            opcoes_visualizacao = ["Todos", "Agrupado", "Disperso", "Área de Risco", "Área Laranja"]
             tipo_visualizacao = st.sidebar.radio("Mostrar nos mapas:", opcoes_visualizacao)
             
             st.sidebar.markdown("### 📥 Downloads")
@@ -359,6 +370,10 @@ if uploaded_file is not None:
             if not gdf_risco.empty:
                 df_risco_download = gdf_risco.drop(columns=['geometry', 'cluster'], errors='ignore')
                 st.sidebar.download_button(label="⬇️ Baixar Área de Risco (Excel)", data=df_to_excel(df_risco_download), file_name='servicos_area_risco.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+            
+            if not gdf_laranja.empty:
+                df_laranja_download = gdf_laranja.drop(columns=['geometry', 'cluster'], errors='ignore')
+                st.sidebar.download_button(label="⬇️ Baixar Área Laranja (Excel)", data=df_to_excel(df_laranja_download), file_name='servicos_area_laranja.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
             
             if not gdf_alocados_final.empty:
                 df_pacotes_download = gdf_alocados_final.drop(columns=['geometry', 'cluster'], errors='ignore')
@@ -386,24 +401,25 @@ if uploaded_file is not None:
                     n_agrupados = len(gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Agrupado'])
                     n_dispersos = len(gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Disperso'])
                     n_risco = len(gdf_risco)
-                    p_agrupados = (n_agrupados / total_servicos * 100) if total_servicos > 0 else 0
-                    p_dispersos = (n_dispersos / total_servicos * 100) if total_servicos > 0 else 0
-                    p_risco = (n_risco / total_servicos * 100) if total_servicos > 0 else 0
+                    n_laranja = len(gdf_laranja)
                     
-                    col1, col2, col3 = st.columns(3)
-                    col1.metric("Nº Agrupados", f"{n_agrupados}", f"{p_agrupados:.1f}%")
-                    col2.metric("Nº Dispersos", f"{n_dispersos}", f"{p_dispersos:.1f}%")
-                    col3.metric("Nº em Área de Risco", f"{n_risco}", f"{p_risco:.1f}%")
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.metric("Nº Agrupados", f"{n_agrupados}", f"{(n_agrupados/total_servicos*100):.1f}%")
+                    col2.metric("Nº Dispersos", f"{n_dispersos}", f"{(n_dispersos/total_servicos*100):.1f}%")
+                    col3.metric("Nº em Área de Risco", f"{n_risco}", f"{(n_risco/total_servicos*100):.1f}%")
+                    col4.metric("Nº em Área Laranja", f"{n_laranja}", f"{(n_laranja/total_servicos*100):.1f}%")
 
                     st.subheader(f"Mapa Interativo")
-                    st.write("Serviços em azul são Agrupados, cinza são Dispersos e vermelho estão em Área de Risco.")
                     if not gdf_visualizacao.empty:
                         map_center = [gdf_visualizacao.latitude.mean(), gdf_visualizacao.longitude.mean()]
                         m = folium.Map(location=map_center, zoom_start=11)
-                        if kml_polygons is not None:
-                            folium.GeoJson(kml_polygons, style_function=lambda x: {'fillColor': 'red', 'color': 'red', 'weight': 2, 'fillOpacity': 0.1}, tooltip="Área de Risco / Ilha").add_to(m)
+                        if kml_risco is not None:
+                            folium.GeoJson(kml_risco, style_function=lambda x: {'fillColor': 'red', 'color': 'red', 'weight': 2, 'fillOpacity': 0.2}, tooltip="Área de Risco").add_to(m)
+                        if kml_laranja is not None:
+                            folium.GeoJson(kml_laranja, style_function=lambda x: {'fillColor': 'orange', 'color': 'orange', 'weight': 2, 'fillOpacity': 0.2}, tooltip="Área Laranja (Buffer 300m)").add_to(m)
+
+                        cor_classificacao = {'Agrupado': 'blue', 'Disperso': 'gray', 'Área de Risco': 'red', 'Área Laranja': 'orange'}
                         for _, row in gdf_visualizacao.iterrows():
-                            cor_classificacao = {'Agrupado': 'blue', 'Disperso': 'gray', 'Área de Risco': 'red'}
                             folium.CircleMarker(location=[row['latitude'], row['longitude']], radius=5, color=cor_classificacao.get(row['classificacao'], 'black'), fill=True, fill_color=cor_classificacao.get(row['classificacao'], 'black'), fill_opacity=0.7, popup=f"Classificação: {row['classificacao']}").add_to(m)
                         st_folium(m, use_container_width=True, height=700)
                     else:
@@ -414,13 +430,14 @@ if uploaded_file is not None:
                     st.subheader("Resumo por Centro Operativo")
                     
                     resumo_co = gdf_filtrado_base.groupby('centro_operativo')['classificacao'].value_counts().unstack(fill_value=0)
-                    for col in ['Agrupado', 'Disperso', 'Área de Risco']:
+                    for col in ['Agrupado', 'Disperso', 'Área de Risco', 'Área Laranja']:
                         if col not in resumo_co.columns: resumo_co[col] = 0
                     
-                    resumo_co['total'] = resumo_co['Agrupado'] + resumo_co['Disperso'] + resumo_co['Área de Risco']
+                    resumo_co['total'] = resumo_co['Agrupado'] + resumo_co['Disperso'] + resumo_co['Área de Risco'] + resumo_co['Área Laranja']
                     resumo_co['% Agrupado'] = (resumo_co['Agrupado'] / resumo_co['total'] * 100).round(1)
                     resumo_co['% Disperso'] = (resumo_co['Disperso'] / resumo_co['total'] * 100).round(1)
                     resumo_co['% Área de Risco'] = (resumo_co['Área de Risco'] / resumo_co['total'] * 100).round(1)
+                    resumo_co['% Área Laranja'] = (resumo_co['Área Laranja'] / resumo_co['total'] * 100).round(1)
                     resumo_co.reset_index(inplace=True)
 
                     if df_metas is not None:
@@ -442,7 +459,7 @@ if uploaded_file is not None:
                         resumo_co['Ocupação_das_Equipes_%'] = (resumo_co['Pacotes_Criados'] / resumo_co['equipes'] * 100).fillna(0).round(1)
                         resumo_co['qualidade_da_carteira'] = resumo_co.apply(calcular_qualidade_carteira, axis=1)
                         
-                        cols_ordem = ['centro_operativo', 'total', 'Agrupado', '% Agrupado', 'Disperso', '% Disperso', 'Área de Risco', '% Área de Risco', 'equipes', 'meta_diária', 'Expectativa_Execução', 'Serviços_Alocados', 'Pacotes_Criados', 'Aderência_à_Meta_%', 'Ocupação_das_Equipes_%', 'qualidade_da_carteira']
+                        cols_ordem = ['centro_operativo', 'total', 'Agrupado', '% Agrupado', 'Disperso', '% Disperso', 'Área de Risco', '% Área de Risco', 'Área Laranja', '% Área Laranja', 'equipes', 'meta_diária', 'Expectativa_Execução', 'Serviços_Alocados', 'Pacotes_Criados', 'Aderência_à_Meta_%', 'Ocupação_das_Equipes_%', 'qualidade_da_carteira']
                         cols_existentes = [col for col in cols_ordem if col in resumo_co.columns]
                         resumo_co = resumo_co[cols_existentes].fillna(0)
 
@@ -457,8 +474,10 @@ if uploaded_file is not None:
                     if not gdf_clusters_reais.empty:
                         map_center_hull = [gdf_clusters_reais.latitude.mean(), gdf_clusters_reais.longitude.mean()]
                         m_hull = folium.Map(location=map_center_hull, zoom_start=11)
-                        if kml_polygons is not None:
-                            folium.GeoJson(kml_polygons, style_function=lambda x: {'fillColor': 'red', 'color': 'red', 'weight': 2, 'fillOpacity': 0.1}).add_to(m_hull)
+                        if kml_risco is not None:
+                            folium.GeoJson(kml_risco, style_function=lambda x: {'fillColor': 'red', 'color': 'red', 'weight': 2, 'fillOpacity': 0.1}).add_to(m_hull)
+                        if kml_laranja is not None:
+                            folium.GeoJson(kml_laranja, style_function=lambda x: {'fillColor': 'orange', 'color': 'orange', 'weight': 2, 'fillOpacity': 0.1}).add_to(m_hull)
                         try:
                             hulls = gdf_clusters_reais.dissolve(by='cluster').convex_hull
                             gdf_hulls = gpd.GeoDataFrame(geometry=hulls).reset_index()
@@ -513,8 +532,10 @@ if uploaded_file is not None:
                         map_center_pacotes = [gdf_filtrado_base.latitude.mean(), gdf_filtrado_base.longitude.mean()]
                         m_pacotes = folium.Map(location=map_center_pacotes, zoom_start=10)
                         cores_co = {co: color for co, color in zip(gdf_filtrado_base['centro_operativo'].unique(), ['blue', 'green', 'purple', 'orange', 'darkred', 'red', 'lightred', 'beige', 'darkblue', 'darkgreen', 'cadetblue', 'lightgreen', 'pink', 'lightblue', 'lightgray', 'black'])}
-                        if kml_polygons is not None:
-                            folium.GeoJson(kml_polygons, style_function=lambda x: {'fillColor': 'red', 'color': 'red', 'weight': 2, 'fillOpacity': 0.1}).add_to(m_pacotes)
+                        if kml_risco is not None:
+                            folium.GeoJson(kml_risco, style_function=lambda x: {'fillColor': 'red', 'color': 'red', 'weight': 2, 'fillOpacity': 0.1}).add_to(m_pacotes)
+                        if kml_laranja is not None:
+                            folium.GeoJson(kml_laranja, style_function=lambda x: {'fillColor': 'orange', 'color': 'orange', 'weight': 2, 'fillOpacity': 0.1}).add_to(m_pacotes)
 
                         if not gdf_alocados_final.empty:
                             gdf_hulls_pacotes = gdf_alocados_final.dissolve(by=['centro_operativo', 'pacote_id']).convex_hull.reset_index()
@@ -549,7 +570,7 @@ if uploaded_file is not None:
                 st.subheader("As Metodologias por Trás da Análise")
                 st.markdown("""
                 Esta ferramenta utiliza uma combinação de algoritmos geoespaciais e de aprendizado de máquina para fornecer insights sobre a distribuição de serviços.
-                - **Detecção de Áreas de Exceção (KML/KMZ):** O script primeiramente lê todos os arquivos `.kml` e `.kmz` da pasta do projeto para identificar polígonos de áreas de risco ou ilhas logísticas. Serviços dentro dessas áreas são classificados separadamente e excluídos da análise de clusterização.
+                - **Detecção de Áreas de Exceção (KML/KMZ):** O script primeiramente lê todos os arquivos `.kml` e `.kmz` da pasta do projeto para identificar polígonos de áreas de risco ou ilhas logísticas. Uma "Área Laranja" de 300 metros é criada ao redor destas áreas como uma zona de pré-risco. Serviços dentro de ambas as áreas são classificados separadamente e excluídos da análise de clusterização.
                 - **Detecção de Hotspots (DBSCAN):** Nos serviços restantes, o DBSCAN é usado para encontrar "hotspots" - áreas de alta concentração de serviços. Ele agrupa pontos densamente próximos e marca como "dispersos" os que estão isolados.
                 - **Simulação de Pacotes (Ranking de Densidade):** A lógica para criar pacotes de trabalho prioriza a eficiência. Os hotspots ("Agrupados") são transformados em "pacotes candidatos". Se um hotspot for muito grande para uma única equipe, ele é subdividido de forma inteligente. Todos os candidatos são então ranqueados pela sua densidade (serviços por km²), e os melhores são atribuídos às equipes disponíveis, respeitando o número de **Serviços Designados**.
                 """)
@@ -566,9 +587,9 @@ if uploaded_file is not None:
                 - **O que acontece se um 'hotspot' for muito grande para uma única equipe?**
                   - Se um hotspot contém mais serviços do que o valor em 'Serviços Designados', a ferramenta aplica um método de **"descascamento" (peeling)**: ela "recorta" pacotes de tamanho perfeito de dentro do hotspot, um de cada vez, até que todos os serviços sejam alocados em pacotes que respeitem o limite da equipe.
 
-                - **Por que alguns serviços ficam como "dispersos"?** - Um serviço é considerado disperso se ele não estiver dentro de uma área de risco e não tiver um número mínimo de vizinhos (`Mínimo de Pontos por Cluster`) dentro de um raio de busca (`Raio do Cluster`).
+                - **Por que alguns serviços ficam como "dispersos"?** - Um serviço é considerado disperso se ele não estiver dentro de uma área de risco/laranja e não tiver um número mínimo de vizinhos (`Mínimo de Pontos por Cluster`) dentro de um raio de busca (`Raio do Cluster`).
 
-                - **O que significa um serviço "excedente" na simulação?** - São todos os serviços que não foram alocados em um pacote. Isso inclui os serviços **Dispersos**, os em **Área de Risco** e os **Agrupados** que não entraram no ranking dos melhores pacotes (seja por baixa densidade ou por falta de equipes disponíveis).
+                - **O que significa um serviço "excedente" na simulação?** - São todos os serviços que não foram alocados em um pacote. Isso inclui os serviços **Dispersos**, os em **Área de Risco**, os em **Área Laranja**, e os **Agrupados** que não entraram no ranking dos melhores pacotes (seja por baixa densidade ou por falta de equipes disponíveis).
                 """)
         else:
             st.warning("Nenhum dado para exibir com os filtros atuais.")
