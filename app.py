@@ -83,6 +83,7 @@ def carregar_kmls(pasta_projeto, buffer_distancia_m=300):
             debug_log.append({'Arquivo': os.path.basename(gis_file), 'Status': '❌ Falha', 'Erro': str(e)})
 
     if not poligonos_validos:
+        # CORREÇÃO: Garante que 3 valores sejam sempre retornados
         return None, None, pd.DataFrame(debug_log)
 
     geometria_risco = gpd.GeoSeries(poligonos_validos, crs="EPSG:4326").unary_union
