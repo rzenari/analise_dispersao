@@ -16,8 +16,6 @@ import io
 import os
 import glob
 import zipfile
-import requests
-from datetime import datetime
 
 # ==============================================================================
 # 2. CONFIGURAÇÃO DA PÁGINA E TÍTULOS
@@ -76,7 +74,7 @@ def carregar_kmls(pasta_projeto):
                     geometrias_corrigidas.append(poligono)
             
             if geometrias_corrigidas:
-                geometrias_individuais[nome_arquivo] = gpd.GeoSeries(geometrias_corrigidas).unary_union
+                geometrias_individuais[nome_arquivo] = gpd.GeoSeries(geometrias_corrigidas).union_all()
                 debug_log.append({'Arquivo': nome_arquivo, 'Status': '✅ Sucesso'})
             else:
                 debug_log.append({'Arquivo': nome_arquivo, 'Status': '❌ Falha', 'Erro': 'Geometria inválida, não foi possível corrigir.'})
@@ -250,7 +248,6 @@ def get_weather_forecast(lat, lon, api_key):
         daily_forecasts = {}
         for forecast in data['list']:
             date = datetime.fromtimestamp(forecast['dt']).strftime('%Y-%m-%d')
-            # Prioriza a previsão do meio-dia para representar o dia
             if date not in daily_forecasts or forecast['dt_txt'].endswith('12:00:00'):
                 daily_forecasts[date] = forecast
         
@@ -275,6 +272,25 @@ def get_operational_status(condition, wind_speed):
         return "⚠️ Possível Contingência"
     else:
         return "✅ Operação Normal"
+
+def desenhar_camadas_kml(map_object, risco_dict, laranja_dict):
+    """Função auxiliar para desenhar as camadas KML em um mapa Folium."""
+    if risco_dict:
+        for nome, poligono in risco_dict.items():
+            folium.GeoJson(
+                poligono,
+                style_function=lambda x: {'fillColor': 'red', 'color': 'red', 'weight': 2, 'fillOpacity': 0.2},
+                tooltip=f"Área de Risco: {nome}"
+            ).add_to(map_object)
+    
+    if laranja_dict:
+        for nome, poligono in laranja_dict.items():
+            if poligono and not poligono.is_empty:
+                folium.GeoJson(
+                    poligono,
+                    style_function=lambda x: {'fillColor': 'orange', 'color': 'orange', 'weight': 2, 'fillOpacity': 0.2},
+                    tooltip=f"Área Laranja: {nome}"
+                ).add_to(map_object)
         
 # ==============================================================================
 # 4. LÓGICA PRINCIPAL DA APLICAÇÃO
@@ -307,16 +323,19 @@ if uploaded_file is not None:
             areas_sem_laranja = st.sidebar.multiselect('Desativar Área Laranja para:', nomes_areas, help="Selecione as áreas de risco que NÃO devem ter a área laranja de 120m ao redor.")
 
         kml_risco_unificado, kml_laranja_unificado = None, None
+        kml_laranja_dict = {}
         if geometrias_kml_dict:
-            kml_risco_unificado = gpd.GeoSeries(list(geometrias_kml_dict.values()), crs="EPSG:4326").unary_union
+            kml_risco_unificado = gpd.GeoSeries(list(geometrias_kml_dict.values()), crs="EPSG:4326").union_all()
             
-            poligonos_para_buffer = [poly for name, poly in geometrias_kml_dict.items() if name not in areas_sem_laranja]
-            if poligonos_para_buffer:
-                geometria_para_buffer = gpd.GeoSeries(poligonos_para_buffer, crs="EPSG:4326").unary_union
-                geometria_proj = gpd.GeoSeries([geometria_para_buffer], crs="EPSG:4326").to_crs("EPSG:3857")
-                buffer_grande = geometria_proj.buffer(120)
-                geometria_laranja_proj = buffer_grande.difference(geometria_proj)
-                kml_laranja_unificado = gpd.GeoSeries(geometria_laranja_proj, crs="EPSG:3857").to_crs("EPSG:4326").unary_union
+            for nome_arquivo, poligono in geometrias_kml_dict.items():
+                if nome_arquivo not in areas_sem_laranja:
+                    geometria_proj = gpd.GeoSeries([poligono], crs="EPSG:4326").to_crs("EPSG:3857")
+                    buffer_grande = geometria_proj.buffer(120)
+                    geometria_laranja_proj = buffer_grande.difference(geometria_proj)
+                    kml_laranja_dict[nome_arquivo] = gpd.GeoSeries(geometria_laranja_proj, crs="EPSG:3857").to_crs("EPSG:4326").union_all()
+        
+        if kml_laranja_dict:
+            kml_laranja_unificado = gpd.GeoSeries(list(kml_laranja_dict.values()), crs="EPSG:4326").union_all()
 
         st.sidebar.markdown("### Filtros da Análise")
         filtros = ['sucursal', 'centro_operativo', 'corte_recorte', 'prioridade']
@@ -468,14 +487,7 @@ if uploaded_file is not None:
                     if not gdf_visualizacao.empty:
                         map_center = [gdf_visualizacao.latitude.mean(), gdf_visualizacao.longitude.mean()]
                         m = folium.Map(location=map_center, zoom_start=11)
-                        if geometrias_kml_dict:
-                            for nome, poligono in geometrias_kml_dict.items():
-                                folium.GeoJson(poligono, style_function=lambda x: {'fillColor': 'red', 'color': 'red', 'weight': 2, 'fillOpacity': 0.2}, tooltip=f"Área de Risco: {nome}").add_to(m)
-                        
-                        if kml_laranja_dict:
-                            for nome, poligono in kml_laranja_dict.items():
-                                if poligono and not poligono.is_empty:
-                                    folium.GeoJson(poligono, style_function=lambda x: {'fillColor': 'orange', 'color': 'orange', 'weight': 2, 'fillOpacity': 0.2}, tooltip=f"Área Laranja: {nome}").add_to(m)
+                        desenhar_camadas_kml(m, geometrias_kml_dict, kml_laranja_dict)
                         
                         cor_classificacao = {'Agrupado': 'blue', 'Disperso': 'gray', 'Área de Risco': 'red', 'Área Laranja': 'orange'}
                         for _, row in gdf_visualizacao.iterrows():
@@ -535,13 +547,7 @@ if uploaded_file is not None:
                     if not gdf_clusters_reais.empty:
                         map_center_hull = [gdf_clusters_reais.latitude.mean(), gdf_clusters_reais.longitude.mean()]
                         m_hull = folium.Map(location=map_center_hull, zoom_start=11)
-                        if geometrias_kml_dict:
-                            for nome, poligono in geometrias_kml_dict.items():
-                                folium.GeoJson(poligono, style_function=lambda x: {'fillColor': 'red', 'color': 'red', 'weight': 2, 'fillOpacity': 0.1}, tooltip=f"Área de Risco: {nome}").add_to(m_hull)
-                        if kml_laranja_dict:
-                            for nome, poligono in kml_laranja_dict.items():
-                                if poligono and not poligono.is_empty:
-                                    folium.GeoJson(poligono, style_function=lambda x: {'fillColor': 'orange', 'color': 'orange', 'weight': 2, 'fillOpacity': 0.1}, tooltip=f"Área Laranja: {nome}").add_to(m_hull)
+                        desenhar_camadas_kml(m_hull, geometrias_kml_dict, kml_laranja_dict)
                         try:
                             hulls = gdf_clusters_reais.dissolve(by='cluster').convex_hull
                             gdf_hulls = gpd.GeoDataFrame(geometry=hulls).reset_index()
@@ -596,13 +602,8 @@ if uploaded_file is not None:
                         map_center_pacotes = [gdf_filtrado_base.latitude.mean(), gdf_filtrado_base.longitude.mean()]
                         m_pacotes = folium.Map(location=map_center_pacotes, zoom_start=10)
                         cores_co = {co: color for co, color in zip(gdf_filtrado_base['centro_operativo'].unique(), ['blue', 'green', 'purple', 'orange', 'darkred', 'red', 'lightred', 'beige', 'darkblue', 'darkgreen', 'cadetblue', 'lightgreen', 'pink', 'lightblue', 'lightgray', 'black'])}
-                        if geometrias_kml_dict:
-                            for nome, poligono in geometrias_kml_dict.items():
-                                folium.GeoJson(poligono, style_function=lambda x: {'fillColor': 'red', 'color': 'red', 'weight': 2, 'fillOpacity': 0.1}, tooltip=f"Área de Risco: {nome}").add_to(m_pacotes)
-                        if kml_laranja_dict:
-                            for nome, poligono in kml_laranja_dict.items():
-                                if poligono and not poligono.is_empty:
-                                    folium.GeoJson(poligono, style_function=lambda x: {'fillColor': 'orange', 'color': 'orange', 'weight': 2, 'fillOpacity': 0.1}, tooltip=f"Área Laranja: {nome}").add_to(m_pacotes)
+                        
+                        desenhar_camadas_kml(m_pacotes, geometrias_kml_dict, kml_laranja_dict)
 
                         if not gdf_alocados_final.empty:
                             gdf_hulls_pacotes = gdf_alocados_final.dissolve(by=['centro_operativo', 'pacote_id']).convex_hull.reset_index()
@@ -640,7 +641,7 @@ if uploaded_file is not None:
                 api_key = st.secrets.get("OPENWEATHER_API_KEY")
 
                 if not api_key:
-                    st.error("Chave da API OpenWeatherMap não encontrada. Por favor, configure-a nos 'secrets' do Streamlit como 'OPENWEATHER_API_KEY'.")
+                    st.error("Chave da API OpenWeatherMap não encontrada. Configure-a em 'secrets'.")
                 else:
                     centroids = gdf_filtrado_base.dissolve(by='centro_operativo').centroid
                     co_coords = {co: (point.y, point.x) for co, point in centroids.items()}
