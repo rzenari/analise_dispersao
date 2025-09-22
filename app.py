@@ -5,12 +5,10 @@ import streamlit as st
 import pandas as pd
 import geopandas as gpd
 import numpy as np
-from sklearn.cluster import DBSCAN, KMeans
+from sklearn.cluster import DBSCAN
 from scipy.spatial import cKDTree
-from math import sqrt, ceil
 import folium
 from streamlit_folium import st_folium
-from folium.plugins import MarkerCluster
 from shapely.geometry import Polygon
 import io
 import os
@@ -270,14 +268,15 @@ def get_weather_forecast(lat, lon, api_key):
 
         # Lógica de Fallback para o dia atual
         if today_str in daily_data:
-            if daily_data[today_str]['manha_forecast'] is None:
-                first_available_forecast = next((f for f in data['list'] if datetime.fromtimestamp(f['dt']).strftime('%Y-%m-%d') == today_str), None)
-                daily_data[today_str]['manha_forecast'] = first_available_forecast
+            forecasts_today = [f for f in data['list'] if datetime.fromtimestamp(f['dt']).strftime('%Y-%m-%d') == today_str]
+            
+            if daily_data[today_str]['manha_forecast'] is None and forecasts_today:
+                daily_data[today_str]['manha_forecast'] = forecasts_today[0]
 
-            if daily_data[today_str]['tarde_forecast'] is None:
-                afternoon_fallback_forecast = next((f for f in data['list'] if datetime.fromtimestamp(f['dt']).strftime('%Y-%m-%d') == today_str and datetime.fromtimestamp(f['dt']).hour >= 17), None)
+            if daily_data[today_str]['tarde_forecast'] is None and forecasts_today:
+                afternoon_fallback_forecast = next((f for f in forecasts_today if datetime.fromtimestamp(f['dt']).hour >= 17), None)
                 if afternoon_fallback_forecast is None:
-                     afternoon_fallback_forecast = daily_data[today_str]['manha_forecast']
+                     afternoon_fallback_forecast = forecasts_today[-1] # Pega o último disponível no dia
                 daily_data[today_str]['tarde_forecast'] = afternoon_fallback_forecast
 
         forecast_list = []
@@ -345,18 +344,14 @@ if uploaded_file is not None:
             nomes_areas = list(geometrias_kml_dict.keys())
             areas_sem_laranja = st.sidebar.multiselect('Desativar Área Laranja para:', nomes_areas, help="Selecione as áreas de risco que NÃO devem ter a área laranja de 120m ao redor.")
 
-        kml_risco_unificado, kml_laranja_unificado = None, None
         kml_laranja_dict = {}
         if geometrias_kml_dict:
-            kml_risco_unificado = gpd.GeoSeries(list(geometrias_kml_dict.values()), crs="EPSG:4326").union_all()
             for nome_arquivo, poligono in geometrias_kml_dict.items():
                 if nome_arquivo not in areas_sem_laranja:
                     geometria_proj = gpd.GeoSeries([poligono], crs="EPSG:4326").to_crs("EPSG:3857")
                     buffer_grande = geometria_proj.buffer(120)
                     geometria_laranja_proj = buffer_grande.difference(geometria_proj)
                     kml_laranja_dict[nome_arquivo] = gpd.GeoSeries(geometria_laranja_proj, crs="EPSG:3857").to_crs("EPSG:4326").union_all()
-        if kml_laranja_dict:
-            kml_laranja_unificado = gpd.GeoSeries(list(kml_laranja_dict.values()), crs="EPSG:4326").union_all()
 
         st.sidebar.markdown("### Filtros da Análise")
         filtros = ['sucursal', 'centro_operativo', 'corte_recorte', 'prioridade']
@@ -378,19 +373,25 @@ if uploaded_file is not None:
                 elif valor != "Todos": df_filtrado = df_filtrado[df_filtrado[coluna].astype(str) == valor]
 
         gdf_filtrado_base = gpd.GeoDataFrame(df_filtrado, geometry=gpd.points_from_xy(df_filtrado.longitude, df_filtrado.latitude), crs="EPSG:4326")
+        
+        # Classificação de Risco e Laranja com rastreamento da fonte
         gdf_filtrado_base['classificacao'] = 'A ser definido'
-        gdf_risco, gdf_laranja = gpd.GeoDataFrame(), gpd.GeoDataFrame()
+        gdf_filtrado_base['fonte_kml'] = ''
 
-        if kml_risco_unificado is not None:
-            indices_risco = gdf_filtrado_base.within(kml_risco_unificado)
-            gdf_filtrado_base.loc[indices_risco, 'classificacao'] = 'Área de Risco'
-            gdf_risco = gdf_filtrado_base[indices_risco].copy()
+        if geometrias_kml_dict:
+            for nome_arquivo, poligono in geometrias_kml_dict.items():
+                indices_risco = gdf_filtrado_base.within(poligono)
+                gdf_filtrado_base.loc[indices_risco, 'classificacao'] = 'Área de Risco'
+                gdf_filtrado_base.loc[indices_risco, 'fonte_kml'] = nome_arquivo
 
-        if kml_laranja_unificado is not None and not kml_laranja_unificado.is_empty:
-            gdf_temp_para_laranja = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'A ser definido']
-            indices_laranja = gdf_temp_para_laranja.within(kml_laranja_unificado)
-            gdf_filtrado_base.loc[indices_laranja[indices_laranja].index, 'classificacao'] = 'Área Laranja'
-            gdf_laranja = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Área Laranja'].copy()
+        if kml_laranja_dict:
+            for nome_arquivo, poligono_laranja in kml_laranja_dict.items():
+                # Apenas classifica o que ainda não foi classificado como risco
+                gdf_temp_para_laranja = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'A ser definido']
+                if not gdf_temp_para_laranja.empty:
+                    indices_laranja = gdf_temp_para_laranja.within(poligono_laranja)
+                    gdf_filtrado_base.loc[indices_laranja[indices_laranja].index, 'classificacao'] = 'Área Laranja'
+                    gdf_filtrado_base.loc[indices_laranja[indices_laranja].index, 'fonte_kml'] = nome_arquivo
 
         gdf_para_analise = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'A ser definido'].copy()
         
@@ -407,6 +408,10 @@ if uploaded_file is not None:
         
         gdf_filtrado_base['cluster'] = gdf_filtrado_base['cluster'].fillna(-1)
         gdf_filtrado_base.loc[gdf_filtrado_base['classificacao'] == 'A ser definido', 'classificacao'] = 'Disperso'
+        
+        # Preparando GDFs específicos para download
+        gdf_risco = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Área de Risco'].copy()
+        gdf_laranja = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Área Laranja'].copy()
 
         gdf_alocados_final = gpd.GeoDataFrame()
         if df_metas is not None:
@@ -439,12 +444,12 @@ if uploaded_file is not None:
             tipo_visualizacao = st.sidebar.radio("Mostrar nos mapas:", opcoes_visualizacao)
             
             st.sidebar.markdown("### 📥 Downloads")
-            df_agrupados_download = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Agrupado'].drop(columns=['geometry', 'cluster'], errors='ignore')
+            df_agrupados_download = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Agrupado'].drop(columns=['geometry', 'cluster', 'fonte_kml'], errors='ignore')
             if not df_agrupados_download.empty: st.sidebar.download_button(label="⬇️ Baixar Agrupados (Excel)", data=df_to_excel(df_agrupados_download), file_name='servicos_agrupados.xlsx')
-            df_dispersos_download = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Disperso'].drop(columns=['geometry', 'cluster'], errors='ignore')
+            df_dispersos_download = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Disperso'].drop(columns=['geometry', 'cluster', 'fonte_kml'], errors='ignore')
             if not df_dispersos_download.empty: st.sidebar.download_button(label="⬇️ Baixar Dispersos (Excel)", data=df_to_excel(df_dispersos_download), file_name='servicos_dispersos.xlsx')
-            if not gdf_risco.empty: st.sidebar.download_button(label="⬇️ Baixar Área de Risco (Excel)", data=df_to_excel(gdf_risco), file_name='servicos_area_risco.xlsx')
-            if not gdf_laranja.empty: st.sidebar.download_button(label="⬇️ Baixar Área Laranja (Excel)", data=df_to_excel(gdf_laranja), file_name='servicos_area_laranja.xlsx')
+            if not gdf_risco.empty: st.sidebar.download_button(label="⬇️ Baixar Área de Risco (Excel)", data=df_to_excel(gdf_risco.drop(columns=['geometry', 'cluster'], errors='ignore')), file_name='servicos_area_risco.xlsx')
+            if not gdf_laranja.empty: st.sidebar.download_button(label="⬇️ Baixar Área Laranja (Excel)", data=df_to_excel(gdf_laranja.drop(columns=['geometry', 'cluster'], errors='ignore')), file_name='servicos_area_laranja.xlsx')
             if not gdf_alocados_final.empty: st.sidebar.download_button(label="⬇️ Baixar Pacotes de Trabalho (Excel)", data=df_to_excel(gdf_alocados_final.drop(columns=['geometry', 'cluster'], errors='ignore')), file_name='pacotes_de_trabalho.xlsx')
 
             gdf_visualizacao = gdf_filtrado_base.copy()
@@ -532,7 +537,7 @@ if uploaded_file is not None:
                         expectativa_total = metas_filtradas['expectativa_execucao'].sum()
                         servicos_agrupados_para_pacotes, servicos_alocados = len(gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Agrupado']), len(gdf_alocados_final)
                         pacotes_criados = gdf_alocados_final['pacote_id'].nunique() if not gdf_alocados_final.empty else 0
-                        servicos_excedentes = len(gdf_excedentes_final) if 'gdf_excedentes_final' in locals() else total_servicos - servicos_alocados
+                        servicos_excedentes = len(gdf_excedentes_final) if 'gdf_excedentes_final' in locals() else len(gdf_filtrado_base) - servicos_alocados
                         aderencia_meta = (servicos_alocados / meta_diaria_total * 100) if meta_diaria_total > 0 else 0
                         ocupacao_equipes = (pacotes_criados / equipes_disponiveis * 100) if equipes_disponiveis > 0 else 0
                         col1, col2, col3 = st.columns(3)
@@ -611,9 +616,9 @@ if uploaded_file is not None:
                 st.subheader("As Metodologias por Trás da Análise")
                 st.markdown("""
                 Esta ferramenta utiliza uma combinação de algoritmos geoespaciais e de aprendizado de máquina para fornecer insights sobre a distribuição de serviços.
-                - **Detecção de Áreas de Exceção (KML/KMZ):** O script primeiramente lê todos os arquivos `.kml` e `.kmz` da pasta do projeto para identificar polígonos de áreas de risco ou ilhas logísticas. Uma "Área Laranja" de 120 metros é criada ao redor destas áreas como uma zona de pré-risco, que pode ser desativada para áreas específicas na barra lateral. Serviços dentro de ambas as zonas são classificados separadamente e excluídos da análise de clusterização.
+                - **Detecção de Áreas de Exceção (KML/KMZ):** O script primeiramente lê todos os arquivos `.kml` e `.kmz` da pasta do projeto para identificar polígonos de áreas de risco ou ilhas logísticas. Uma "Área Laranja" de 120 metros é criada ao redor destas áreas como uma zona de pré-risco, que pode ser desativada para áreas específicas. Serviços dentro de ambas as zonas são classificados separadamente, e a ferramenta armazena o nome do arquivo KML/KMZ de origem para rastreabilidade, informação que fica disponível nos arquivos de download.
                 - **Detecção de Hotspots (DBSCAN):** Nos serviços restantes, o DBSCAN é usado para encontrar "hotspots" - áreas de alta concentração de serviços. Ele agrupa pontos densamente próximos e marca como "dispersos" os que estão isolados.
-                - **Simulação de Pacotes (Ranking de Densidade):** A lógica para criar pacotes de trabalho prioriza a eficiência. Os hotspots ("Agrupados") são transformados em "pacotes candidatos". Se um hotspot for muito grande para uma única equipe, ele é subdividido de forma inteligente. Todos os candidatos são então ranqueados pela sua densidade (serviços por km²), e os melhores são atribuídos às equipes disponíveis, respeitando o número de **Serviços Designados**.
+                - **Simulação de Pacotes (Ranking de Densidade):** A lógica para criar pacotes de trabalho prioriza a eficiência. Os hotspots ("Agrupados") são transformados em "pacotes candidatos". Se um hotspot for muito grande para uma única equipe, ele é subdividido. Todos os candidatos são então ranqueados pela sua densidade (serviços por km²), e os melhores são atribuídos às equipes disponíveis, respeitando o número de **Serviços Designados**.
                 - **Painel de Risco Climático:** A aba "Painel de Risco Climático" foi aprimorada para funcionar como um painel de análise de risco. A lógica utiliza dois fatores para determinar o status operacional:
                     - **Análise da Madrugada:** É calculado o total de chuva acumulado na madrugada do dia atual (entre 00:00 e 06:00). Um volume significativo (ex: acima de 5 mm) pode impactar o início dos trabalhos.
                     - **Análise Presente e Futura:** Para o dia de hoje, a ferramenta utiliza os dados de tempo mais recentes disponíveis para garantir precisão, mesmo que os horários de 09:00 e 15:00 já tenham passado. Os demais períodos e dias futuros utilizam as previsões horárias padrões.
