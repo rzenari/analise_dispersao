@@ -1,0 +1,1182 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2" xmlns:kml="http://www.opengis.net/kml/2.2" xmlns:atom="http://www.w3.org/2005/Atom">
+<Folder>
+	<name>Campos</name>
+	<Document>
+		<name>Polig_Nova_Proposta_Baleeira.kml</name>
+		<StyleMap id="msn_ylw-pushpin">
+			<Pair>
+				<key>normal</key>
+				<styleUrl>#sn_ylw-pushpin</styleUrl>
+			</Pair>
+			<Pair>
+				<key>highlight</key>
+				<styleUrl>#sh_ylw-pushpin</styleUrl>
+			</Pair>
+		</StyleMap>
+		<Style id="sh_ylw-pushpin">
+			<IconStyle>
+				<scale>1.3</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>7f0000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>7fffffff</color>
+			</PolyStyle>
+		</Style>
+		<Style id="sn_ylw-pushpin">
+			<IconStyle>
+				<scale>1.1</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>7f0000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>7fffffff</color>
+			</PolyStyle>
+		</Style>
+		<Placemark>
+			<name>Polig_Nova_Proposta_Baleeira</name>
+			<styleUrl>#msn_ylw-pushpin</styleUrl>
+			<Polygon>
+				<tessellate>1</tessellate>
+				<outerBoundaryIs>
+					<LinearRing>
+						<coordinates>
+							-41.34308922242146,-21.74276685785065,0 -41.3441548176256,-21.74265680711179,0 -41.345491057002,-21.74599950927594,0 -41.34059042861722,-21.74769256524137,0 -41.34045305320478,-21.7475549830216,0 -41.34020547298548,-21.74557799117003,0 -41.34308922242146,-21.74276685785065,0 
+						</coordinates>
+					</LinearRing>
+				</outerBoundaryIs>
+			</Polygon>
+		</Placemark>
+	</Document>
+	<Document>
+		<name>polig_area_risco_barbosa_guerra.kml</name>
+		<visibility>0</visibility>
+		<StyleMap id="msn_ylw-pushpin0">
+			<Pair>
+				<key>normal</key>
+				<styleUrl>#sn_ylw-pushpin0</styleUrl>
+			</Pair>
+			<Pair>
+				<key>highlight</key>
+				<styleUrl>#sh_ylw-pushpin0</styleUrl>
+			</Pair>
+		</StyleMap>
+		<Style id="sh_ylw-pushpin0">
+			<IconStyle>
+				<scale>1.3</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>7f0000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>7f0000ff</color>
+				<outline>0</outline>
+			</PolyStyle>
+		</Style>
+		<Style id="sn_ylw-pushpin0">
+			<IconStyle>
+				<scale>1.1</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>7f0000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>7f0000ff</color>
+				<outline>0</outline>
+			</PolyStyle>
+		</Style>
+		<Placemark>
+			<name>polig_area_risco_barbosa_guerra</name>
+			<visibility>0</visibility>
+			<styleUrl>#msn_ylw-pushpin0</styleUrl>
+			<Polygon>
+				<tessellate>1</tessellate>
+				<outerBoundaryIs>
+					<LinearRing>
+						<coordinates>
+							-41.32420242490252,-21.72879443362923,0 -41.32522878610192,-21.72973348359386,0 -41.32499948140924,-21.73014407514374,0 -41.32518506873978,-21.73054788517539,0 -41.32578473340043,-21.73119026615944,0 -41.32468322457142,-21.73215823978366,0 -41.32452773159744,-21.73167141283254,0 -41.32444429076445,-21.731392751675,0 -41.32413273790104,-21.73054093183639,0 -41.32406192723457,-21.73011355973247,0 -41.32369666755862,-21.72928453476091,0 -41.32347447563942,-21.72926666081454,0 -41.32336009285613,-21.72798450201555,0 -41.32405048785692,-21.72781099702988,0 -41.32411482888053,-21.72814477394818,0 -41.32420242490252,-21.72879443362923,0 
+						</coordinates>
+					</LinearRing>
+				</outerBoundaryIs>
+			</Polygon>
+		</Placemark>
+	</Document>
+	<Document>
+		<name>Campos_Campos_Chatuba.kml</name>
+		<StyleMap id="msn_ylw-pushpin2">
+			<Pair>
+				<key>normal</key>
+				<styleUrl>#sn_ylw-pushpin00</styleUrl>
+			</Pair>
+			<Pair>
+				<key>highlight</key>
+				<styleUrl>#sh_ylw-pushpin00</styleUrl>
+			</Pair>
+		</StyleMap>
+		<Style id="sh_ylw-pushpin00">
+			<IconStyle>
+				<scale>1.3</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>7f0000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>990000e6</color>
+				<outline>0</outline>
+			</PolyStyle>
+		</Style>
+		<Style id="sn_ylw-pushpin00">
+			<IconStyle>
+				<scale>1.1</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>7f0000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>990000e6</color>
+				<outline>0</outline>
+			</PolyStyle>
+		</Style>
+		<Placemark>
+			<name>polig_area_risco_chatuba</name>
+			<open>1</open>
+			<styleUrl>#msn_ylw-pushpin2</styleUrl>
+			<Polygon>
+				<tessellate>1</tessellate>
+				<outerBoundaryIs>
+					<LinearRing>
+						<coordinates>
+							-41.3363800520042,-21.78480345882104,0 -41.3403511040864,-21.78569627971449,0 -41.34258981538893,-21.78827550929194,0 -41.34241410480755,-21.78858903121352,0 -41.33844932672687,-21.7876797894931,0 -41.33870745129588,-21.78668419716655,0 -41.33662341820014,-21.78615809836618,0 -41.33623269960867,-21.78498154821992,0 -41.3363800520042,-21.78480345882104,0 
+						</coordinates>
+					</LinearRing>
+				</outerBoundaryIs>
+			</Polygon>
+		</Placemark>
+	</Document>
+	<Document>
+		<name>COMUNIDADE DA COROA.kml</name>
+		<StyleMap id="msn_ylw-pushpin1">
+			<Pair>
+				<key>normal</key>
+				<styleUrl>#sn_ylw-pushpin1</styleUrl>
+			</Pair>
+			<Pair>
+				<key>highlight</key>
+				<styleUrl>#sh_ylw-pushpin1</styleUrl>
+			</Pair>
+		</StyleMap>
+		<Style id="sh_ylw-pushpin1">
+			<IconStyle>
+				<scale>1.3</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>800000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>800000ff</color>
+			</PolyStyle>
+		</Style>
+		<Style id="sn_ylw-pushpin1">
+			<IconStyle>
+				<scale>1.1</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>800000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>800000ff</color>
+			</PolyStyle>
+		</Style>
+		<Placemark>
+			<name>COMUNIDADE DA COROA</name>
+			<styleUrl>#msn_ylw-pushpin1</styleUrl>
+			<Polygon>
+				<tessellate>1</tessellate>
+				<outerBoundaryIs>
+					<LinearRing>
+						<coordinates>
+							-41.33255124525292,-21.74316987241368,0 -41.33193148352113,-21.74280706767009,0 -41.33263880332279,-21.74159264497641,0 -41.33339572186009,-21.74072380881456,0 -41.3336982121911,-21.74136162348295,0 -41.33357721914252,-21.74163683948095,0 -41.33371121463013,-21.74171149941902,0 -41.33366399584448,-21.74186814723086,0 -41.3332210894663,-21.74172993882106,0 -41.33255124525292,-21.74316987241368,0 
+						</coordinates>
+					</LinearRing>
+				</outerBoundaryIs>
+			</Polygon>
+		</Placemark>
+	</Document>
+	<Document>
+		<name>Polig_Nova_Proposta_Eldorado II.kml</name>
+		<StyleMap id="msn_ylw-pushpin3">
+			<Pair>
+				<key>normal</key>
+				<styleUrl>#sn_ylw-pushpin2</styleUrl>
+			</Pair>
+			<Pair>
+				<key>highlight</key>
+				<styleUrl>#sh_ylw-pushpin2</styleUrl>
+			</Pair>
+		</StyleMap>
+		<Style id="sh_ylw-pushpin2">
+			<IconStyle>
+				<scale>1.3</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>7f0000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>7fffffff</color>
+			</PolyStyle>
+		</Style>
+		<Style id="sn_ylw-pushpin2">
+			<IconStyle>
+				<scale>1.1</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>7f0000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>7fffffff</color>
+			</PolyStyle>
+		</Style>
+		<Placemark>
+			<name>Polig_Nova_Proposta_Eldorado II</name>
+			<styleUrl>#msn_ylw-pushpin3</styleUrl>
+			<Polygon>
+				<tessellate>1</tessellate>
+				<outerBoundaryIs>
+					<LinearRing>
+						<coordinates>
+							-41.30499629419264,-21.71984334104488,0 -41.30502372345179,-21.72038194686357,0 -41.30527768146346,-21.72148209593168,0 -41.30496733836047,-21.72154883690622,0 -41.30376979692684,-21.72168082312807,0 -41.30277820396059,-21.72174394234361,0 -41.30245910754231,-21.72140156193497,0 -41.30203988286172,-21.72143722382896,0 -41.29978798239339,-21.72167026070189,0 -41.29942858152482,-21.72247645509179,0 -41.29756539269008,-21.72284585977814,0 -41.2959150664118,-21.72306067968719,0 -41.29590476753315,-21.72485669600628,0 -41.29532081667758,-21.72570401696051,0 -41.29382203960497,-21.72629261169012,0 -41.29318667764945,-21.7259536600625,0 -41.29296811442789,-21.72485306493482,0 -41.29285642089776,-21.72310590086871,0 -41.29265189199718,-21.7221816594834,0 -41.29175033377832,-21.72181258146644,0 -41.29115003778546,-21.72275972224982,0 -41.28974017326576,-21.72307729073184,0 -41.28879749033728,-21.72292961155041,0 -41.28929349925138,-21.72060707471943,0 -41.28977808768988,-21.71929117603635,0 -41.29090315533188,-21.71900620951259,0 -41.29343690597762,-21.71907737408066,0 -41.29352366606321,-21.7197628096712,0 -41.29489463143533,-21.71964538452766,0 -41.29684541008802,-21.71950881230931,0 -41.2986573316301,-21.71932830260159,0 -41.30111281264698,-21.719080104507,0 -41.3021815329919,-21.71894595080886,0 -41.30441617485139,-21.71868364736033,0 -41.30605190558635,-21.71855061205344,0 -41.31025130665093,-21.71792378859018,0 -41.31051089485144,-21.71823018543756,0 -41.31106755396927,-21.7190142638664,0 -41.30499629419264,-21.71984334104488,0 
+						</coordinates>
+					</LinearRing>
+				</outerBoundaryIs>
+			</Polygon>
+		</Placemark>
+	</Document>
+	<Document>
+		<name>Polig_Nova_Proposta_Esplanada.kml</name>
+		<StyleMap id="msn_ylw-pushpin4">
+			<Pair>
+				<key>normal</key>
+				<styleUrl>#sn_ylw-pushpin3</styleUrl>
+			</Pair>
+			<Pair>
+				<key>highlight</key>
+				<styleUrl>#sh_ylw-pushpin3</styleUrl>
+			</Pair>
+		</StyleMap>
+		<Style id="sh_ylw-pushpin3">
+			<IconStyle>
+				<scale>1.3</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>7f0000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>7fffffff</color>
+			</PolyStyle>
+		</Style>
+		<Style id="sn_ylw-pushpin3">
+			<IconStyle>
+				<scale>1.1</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>7f0000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>7fffffff</color>
+			</PolyStyle>
+		</Style>
+		<Placemark>
+			<name>Polig_Nova_Proposta_Esplanada</name>
+			<styleUrl>#msn_ylw-pushpin4</styleUrl>
+			<Polygon>
+				<tessellate>1</tessellate>
+				<outerBoundaryIs>
+					<LinearRing>
+						<coordinates>
+							-41.36861757853951,-21.74568394005736,0 -41.3686646809956,-21.74591171699922,0 -41.36839442886075,-21.74623410007583,0 -41.36759143131455,-21.74631579075115,0 -41.36735539565967,-21.7465950241039,0 -41.36719241369563,-21.7464952613441,0 -41.36323363930369,-21.74360574675186,0 -41.36343182635854,-21.74331246655039,0 -41.36383509804565,-21.74280025276947,0 -41.36409763833147,-21.74249236305478,0 -41.36861757853951,-21.74568394005736,0 
+						</coordinates>
+					</LinearRing>
+				</outerBoundaryIs>
+			</Polygon>
+		</Placemark>
+	</Document>
+	<Document>
+		<name>RUA FERNANDO PECLY Nº80 AO 120.kml</name>
+		<StyleMap id="msn_ylw-pushpin5">
+			<Pair>
+				<key>normal</key>
+				<styleUrl>#sn_ylw-pushpin4</styleUrl>
+			</Pair>
+			<Pair>
+				<key>highlight</key>
+				<styleUrl>#sh_ylw-pushpin4</styleUrl>
+			</Pair>
+		</StyleMap>
+		<Style id="sh_ylw-pushpin4">
+			<IconStyle>
+				<scale>1.3</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>800000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>800000ff</color>
+			</PolyStyle>
+		</Style>
+		<Style id="sn_ylw-pushpin4">
+			<IconStyle>
+				<scale>1.1</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>800000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>800000ff</color>
+			</PolyStyle>
+		</Style>
+		<Placemark>
+			<name>RUA FERNANDO PECLY Nº80 AO 120</name>
+			<styleUrl>#msn_ylw-pushpin5</styleUrl>
+			<Polygon>
+				<tessellate>1</tessellate>
+				<outerBoundaryIs>
+					<LinearRing>
+						<coordinates>
+							-41.30556099229808,-21.71125219340129,0 -41.30554410315572,-21.71172058041989,0 -41.30358392479477,-21.71192972928741,0 -41.30357275834081,-21.71140541744122,0 -41.30556099229808,-21.71125219340129,0 
+						</coordinates>
+					</LinearRing>
+				</outerBoundaryIs>
+			</Polygon>
+		</Placemark>
+	</Document>
+	<Document>
+		<name>COMUNIDADE MINHA DEUSA.kml</name>
+		<StyleMap id="msn_ylw-pushpin6">
+			<Pair>
+				<key>normal</key>
+				<styleUrl>#sn_ylw-pushpin5</styleUrl>
+			</Pair>
+			<Pair>
+				<key>highlight</key>
+				<styleUrl>#sh_ylw-pushpin5</styleUrl>
+			</Pair>
+		</StyleMap>
+		<Style id="sh_ylw-pushpin5">
+			<IconStyle>
+				<scale>1.3</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>800000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>800000ff</color>
+			</PolyStyle>
+		</Style>
+		<Style id="sn_ylw-pushpin5">
+			<IconStyle>
+				<scale>1.1</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>800000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>800000ff</color>
+			</PolyStyle>
+		</Style>
+		<Placemark>
+			<name>COMUNIDADE MINHA DEUSA</name>
+			<styleUrl>#msn_ylw-pushpin6</styleUrl>
+			<Polygon>
+				<tessellate>1</tessellate>
+				<outerBoundaryIs>
+					<LinearRing>
+						<coordinates>
+							-41.32826135156282,-21.7165320524978,0 -41.3291224266462,-21.71553256694281,0 -41.32954038909355,-21.71552154826136,0 -41.32944577395961,-21.71626954836466,0 -41.32959547058975,-21.71663049442693,0 -41.32917660745811,-21.71710089236063,0 -41.32826135156282,-21.7165320524978,0 
+						</coordinates>
+					</LinearRing>
+				</outerBoundaryIs>
+			</Polygon>
+		</Placemark>
+	</Document>
+	<Document>
+		<name>CASAS POPULARES NOVO JOCKEY.kml</name>
+		<StyleMap id="msn_ylw-pushpin7">
+			<Pair>
+				<key>normal</key>
+				<styleUrl>#sn_ylw-pushpin6</styleUrl>
+			</Pair>
+			<Pair>
+				<key>highlight</key>
+				<styleUrl>#sh_ylw-pushpin6</styleUrl>
+			</Pair>
+		</StyleMap>
+		<Style id="sh_ylw-pushpin6">
+			<IconStyle>
+				<scale>1.3</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>800000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>800000ff</color>
+			</PolyStyle>
+		</Style>
+		<Style id="sn_ylw-pushpin6">
+			<IconStyle>
+				<scale>1.1</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>800000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>800000ff</color>
+			</PolyStyle>
+		</Style>
+		<Placemark>
+			<name>CASAS POPULARES NOVO JOCKEY</name>
+			<styleUrl>#msn_ylw-pushpin7</styleUrl>
+			<Polygon>
+				<tessellate>1</tessellate>
+				<outerBoundaryIs>
+					<LinearRing>
+						<coordinates>
+							-41.27896177846716,-21.78622888468024,0 -41.27811438964043,-21.78508778571172,0 -41.27450024345569,-21.7869846336464,0 -41.27272248545913,-21.78451617028609,0 -41.27926928379339,-21.78219124214352,0 -41.28123463839857,-21.78481206169932,0 -41.27896177846716,-21.78622888468024,0 
+						</coordinates>
+					</LinearRing>
+				</outerBoundaryIs>
+			</Polygon>
+		</Placemark>
+	</Document>
+	<Document>
+		<name>CASAS POPULARES PQ AEROPORTO.kml</name>
+		<StyleMap id="msn_ylw-pushpin8">
+			<Pair>
+				<key>normal</key>
+				<styleUrl>#sn_ylw-pushpin7</styleUrl>
+			</Pair>
+			<Pair>
+				<key>highlight</key>
+				<styleUrl>#sh_ylw-pushpin7</styleUrl>
+			</Pair>
+		</StyleMap>
+		<Style id="sh_ylw-pushpin7">
+			<IconStyle>
+				<scale>1.3</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>800000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>800000ff</color>
+			</PolyStyle>
+		</Style>
+		<Style id="sn_ylw-pushpin7">
+			<IconStyle>
+				<scale>1.1</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>800000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>800000ff</color>
+			</PolyStyle>
+		</Style>
+		<Placemark>
+			<name>CASAS POPULARES PQ AEROPORTO</name>
+			<styleUrl>#msn_ylw-pushpin8</styleUrl>
+			<Polygon>
+				<tessellate>1</tessellate>
+				<outerBoundaryIs>
+					<LinearRing>
+						<coordinates>
+							-41.298089332545,-21.67947895193925,0 -41.29954955456878,-21.69090998634095,0 -41.29643235668229,-21.68968216333193,0 -41.29567867721801,-21.68000174721989,0 -41.298089332545,-21.67947895193925,0 
+						</coordinates>
+					</LinearRing>
+				</outerBoundaryIs>
+			</Polygon>
+		</Placemark>
+	</Document>
+	<Document>
+		<name>CASAS POPULARES PENHA.kml</name>
+		<StyleMap id="msn_ylw-pushpin9">
+			<Pair>
+				<key>normal</key>
+				<styleUrl>#sn_ylw-pushpin8</styleUrl>
+			</Pair>
+			<Pair>
+				<key>highlight</key>
+				<styleUrl>#sh_ylw-pushpin8</styleUrl>
+			</Pair>
+		</StyleMap>
+		<Style id="sh_ylw-pushpin8">
+			<IconStyle>
+				<scale>1.3</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>800000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>800000ff</color>
+			</PolyStyle>
+		</Style>
+		<Style id="sn_ylw-pushpin8">
+			<IconStyle>
+				<scale>1.1</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>800000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>800000ff</color>
+			</PolyStyle>
+		</Style>
+		<Placemark>
+			<name>CASAS POPULARES PENHA</name>
+			<styleUrl>#msn_ylw-pushpin9</styleUrl>
+			<Polygon>
+				<tessellate>1</tessellate>
+				<outerBoundaryIs>
+					<LinearRing>
+						<coordinates>
+							-41.28085271431326,-21.79672332906252,0 -41.28018613898865,-21.79401434880337,0 -41.28375731325814,-21.79308782785828,0 -41.28402810467419,-21.79414895337093,0 -41.28309843901994,-21.79439125776883,0 -41.28368276437494,-21.79626684062403,0 -41.28423672082519,-21.7984044073609,0 -41.2825753840516,-21.79859621869446,0 -41.2820892143261,-21.79638319659851,0 -41.28085271431326,-21.79672332906252,0 
+						</coordinates>
+					</LinearRing>
+				</outerBoundaryIs>
+			</Polygon>
+		</Placemark>
+	</Document>
+	<Document>
+		<name>TRAVESSA PROLETÁRIA GOLEIRA.kml</name>
+		<StyleMap id="msn_ylw-pushpin10">
+			<Pair>
+				<key>normal</key>
+				<styleUrl>#sn_ylw-pushpin9</styleUrl>
+			</Pair>
+			<Pair>
+				<key>highlight</key>
+				<styleUrl>#sh_ylw-pushpin9</styleUrl>
+			</Pair>
+		</StyleMap>
+		<Style id="sh_ylw-pushpin9">
+			<IconStyle>
+				<scale>1.3</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>800000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>800000ff</color>
+			</PolyStyle>
+		</Style>
+		<Style id="sn_ylw-pushpin9">
+			<IconStyle>
+				<scale>1.1</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>800000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>800000ff</color>
+			</PolyStyle>
+		</Style>
+		<Placemark>
+			<name>TRAVESSA PROLETÁRIA GOLEIRA</name>
+			<styleUrl>#msn_ylw-pushpin10</styleUrl>
+			<Polygon>
+				<tessellate>1</tessellate>
+				<outerBoundaryIs>
+					<LinearRing>
+						<coordinates>
+							-41.31232826569624,-21.72610872520073,0 -41.3123289605067,-21.72628750927501,0 -41.30939330763477,-21.72662659419621,0 -41.30937660690253,-21.72645410998904,0 -41.31232826569624,-21.72610872520073,0 
+						</coordinates>
+					</LinearRing>
+				</outerBoundaryIs>
+			</Polygon>
+		</Placemark>
+	</Document>
+	<Document>
+		<name>Norte_Campos_Rua da Paciência.kml</name>
+		<StyleMap id="msn_ylw-pushpin50">
+			<Pair>
+				<key>normal</key>
+				<styleUrl>#sn_ylw-pushpin60</styleUrl>
+			</Pair>
+			<Pair>
+				<key>highlight</key>
+				<styleUrl>#sh_ylw-pushpin30</styleUrl>
+			</Pair>
+		</StyleMap>
+		<Style id="sh_ylw-pushpin30">
+			<IconStyle>
+				<scale>1.3</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>7f0000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>7f0000ff</color>
+				<outline>0</outline>
+			</PolyStyle>
+		</Style>
+		<Style id="sn_ylw-pushpin60">
+			<IconStyle>
+				<scale>1.1</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>7f0000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>7f0000ff</color>
+				<outline>0</outline>
+			</PolyStyle>
+		</Style>
+		<Placemark>
+			<name>Rua da Paciência</name>
+			<styleUrl>#msn_ylw-pushpin50</styleUrl>
+			<Polygon>
+				<tessellate>1</tessellate>
+				<outerBoundaryIs>
+					<LinearRing>
+						<coordinates>
+							-41.32757360168895,-21.72371431875911,0 -41.32705782035798,-21.72491123155222,0 -41.32666812938303,-21.72480976412087,0 -41.32707456965105,-21.72361567261148,0 -41.32757360168895,-21.72371431875911,0 
+						</coordinates>
+					</LinearRing>
+				</outerBoundaryIs>
+			</Polygon>
+		</Placemark>
+	</Document>
+	<Document>
+		<name>Norte_Campos_Santa Rosa 1.kml</name>
+		<StyleMap id="msn_ylw-pushpin11">
+			<Pair>
+				<key>normal</key>
+				<styleUrl>#sn_ylw-pushpin10</styleUrl>
+			</Pair>
+			<Pair>
+				<key>highlight</key>
+				<styleUrl>#sh_ylw-pushpin60</styleUrl>
+			</Pair>
+		</StyleMap>
+		<Style id="sh_ylw-pushpin60">
+			<IconStyle>
+				<scale>1.3</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>7f0000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>7f0000ff</color>
+				<outline>0</outline>
+			</PolyStyle>
+		</Style>
+		<Style id="sn_ylw-pushpin10">
+			<IconStyle>
+				<scale>1.1</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>7f0000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>7f0000ff</color>
+				<outline>0</outline>
+			</PolyStyle>
+		</Style>
+		<Placemark>
+			<name>Santa Rosa 1</name>
+			<styleUrl>#msn_ylw-pushpin11</styleUrl>
+			<Polygon>
+				<tessellate>1</tessellate>
+				<outerBoundaryIs>
+					<LinearRing>
+						<coordinates>
+							-41.3006558329514,-21.73517631414578,0 -41.30034851036537,-21.73524982892834,0 -41.29966281789681,-21.73469101834729,0 -41.29894561730779,-21.73421128253741,0 -41.29846564381894,-21.73449986987987,0 -41.29839208180607,-21.73536035598728,0 -41.29843478497464,-21.73647868402984,0 -41.29790057686103,-21.73658677730031,0 -41.29755841540097,-21.73618813797447,0 -41.29758782729454,-21.73477063473786,0 -41.29740075122771,-21.73303027945796,0 -41.29711413019864,-21.7307445777899,0 -41.2971894543225,-21.72863602234902,0 -41.30003085655162,-21.72925944355926,0 -41.3006558329514,-21.73517631414578,0 
+						</coordinates>
+					</LinearRing>
+				</outerBoundaryIs>
+			</Polygon>
+		</Placemark>
+	</Document>
+	<Document>
+		<name>Norte_Campos_Santa Rosa 2.kml</name>
+		<StyleMap id="msn_ylw-pushpin00">
+			<Pair>
+				<key>normal</key>
+				<styleUrl>#sn_ylw-pushpin30</styleUrl>
+			</Pair>
+			<Pair>
+				<key>highlight</key>
+				<styleUrl>#sh_ylw-pushpin20</styleUrl>
+			</Pair>
+		</StyleMap>
+		<Style id="sh_ylw-pushpin20">
+			<IconStyle>
+				<scale>1.3</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>7f0000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>7f0000ff</color>
+				<outline>0</outline>
+			</PolyStyle>
+		</Style>
+		<Style id="sn_ylw-pushpin30">
+			<IconStyle>
+				<scale>1.1</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>7f0000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>7f0000ff</color>
+				<outline>0</outline>
+			</PolyStyle>
+		</Style>
+		<Placemark>
+			<name>Santa Rosa 2</name>
+			<styleUrl>#msn_ylw-pushpin00</styleUrl>
+			<Polygon>
+				<tessellate>1</tessellate>
+				<outerBoundaryIs>
+					<LinearRing>
+						<coordinates>
+							-41.30765937041547,-21.73334773390728,0 -41.30662646179146,-21.73361025872339,0 -41.30562651254777,-21.73386402395837,0 -41.30484951390762,-21.73405099903264,0 -41.30413933905491,-21.73419668784104,0 -41.30388667158848,-21.73402038263811,0 -41.30349404297238,-21.73356431498097,0 -41.30332909631029,-21.73322830292388,0 -41.30328851258877,-21.73267069306817,0 -41.30350284640326,-21.73210333727253,0 -41.30400191483909,-21.73162806522634,0 -41.30451029331083,-21.73137760008746,0 -41.30476824168466,-21.73097794897535,0 -41.30479252201189,-21.73066052803031,0 -41.30489796323077,-21.72978276370443,0 -41.3052594034966,-21.72953287742061,0 -41.30740829705363,-21.72943380944887,0 -41.30765937041547,-21.73334773390728,0 
+						</coordinates>
+					</LinearRing>
+				</outerBoundaryIs>
+			</Polygon>
+		</Placemark>
+	</Document>
+	<Document>
+		<name>Norte_Campos_Terra Prometida.kml</name>
+		<visibility>0</visibility>
+		<StyleMap id="msn_ylw-pushpin000021000010">
+			<Pair>
+				<key>normal</key>
+				<styleUrl>#sn_ylw-pushpin012101010</styleUrl>
+			</Pair>
+			<Pair>
+				<key>highlight</key>
+				<styleUrl>#sh_ylw-pushpin00000200000</styleUrl>
+			</Pair>
+		</StyleMap>
+		<Style id="sh_ylw-pushpin00000200000">
+			<IconStyle>
+				<scale>1.3</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>ff00ffff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>4c00ffff</color>
+			</PolyStyle>
+		</Style>
+		<Style id="sn_ylw-pushpin012101010">
+			<IconStyle>
+				<scale>1.1</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>ff00ffff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>4c00ffff</color>
+			</PolyStyle>
+		</Style>
+		<Placemark>
+			<name>Terra Prometida</name>
+			<visibility>0</visibility>
+			<styleUrl>#msn_ylw-pushpin000021000010</styleUrl>
+			<Polygon>
+				<tessellate>1</tessellate>
+				<outerBoundaryIs>
+					<LinearRing>
+						<coordinates>
+							-41.28002394412433,-21.71726739903578,0 -41.27988530871779,-21.71731457244093,0 -41.27756632589117,-21.71154000802315,0 -41.28123300055776,-21.71160325947024,0 -41.28002394412433,-21.71726739903578,0 
+						</coordinates>
+					</LinearRing>
+				</outerBoundaryIs>
+			</Polygon>
+		</Placemark>
+	</Document>
+	<Document>
+		<name>Polig_Nova_Proposta_Tira_Gosto.kml</name>
+		<StyleMap id="msn_ylw-pushpin12">
+			<Pair>
+				<key>normal</key>
+				<styleUrl>#sn_ylw-pushpin11</styleUrl>
+			</Pair>
+			<Pair>
+				<key>highlight</key>
+				<styleUrl>#sh_ylw-pushpin10</styleUrl>
+			</Pair>
+		</StyleMap>
+		<Style id="sh_ylw-pushpin10">
+			<IconStyle>
+				<scale>1.3</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>7f0000ff</color>
+				<width>1.1</width>
+			</LineStyle>
+			<PolyStyle>
+				<color>7fffffff</color>
+			</PolyStyle>
+		</Style>
+		<Style id="sn_ylw-pushpin11">
+			<IconStyle>
+				<scale>1.1</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>7f0000ff</color>
+				<width>1.1</width>
+			</LineStyle>
+			<PolyStyle>
+				<color>7fffffff</color>
+			</PolyStyle>
+		</Style>
+		<Placemark>
+			<name>Polig_Nova_Proposta_Tira_Gosto</name>
+			<styleUrl>#msn_ylw-pushpin12</styleUrl>
+			<Polygon>
+				<tessellate>1</tessellate>
+				<outerBoundaryIs>
+					<LinearRing>
+						<coordinates>
+							-41.29648391731595,-21.76099703880789,0 -41.29573894650168,-21.76141867929864,0 -41.29472225177751,-21.76005232334412,0 -41.29432984048492,-21.76008292967308,0 -41.2939625419545,-21.75965288133099,0 -41.29631328309813,-21.75912311865423,0 -41.29754913294597,-21.75891901953621,0 -41.29849678213974,-21.75875341664894,0 -41.30032637949557,-21.75830530745402,0 -41.30137308151171,-21.75804067618636,0 -41.3022599327389,-21.75783670432367,0 -41.30407334080418,-21.75730003948075,0 -41.30624214567224,-21.75644914295478,0 -41.30812961804384,-21.75562847111461,0 -41.30896709630117,-21.75724502402778,0 -41.30810970885764,-21.75744566638345,0 -41.30736412717878,-21.7576639912594,0 -41.30761317871226,-21.75861337907723,0 -41.30682882754906,-21.75891043238242,0 -41.30618806429639,-21.75793770704642,0 -41.30615096604298,-21.75785979571989,0 -41.30509447535049,-21.75806464523238,0 -41.30400455422863,-21.75826855219262,0 -41.30239128159478,-21.75857524696263,0 -41.3011442538681,-21.75879160794276,0 -41.29976397853226,-21.75905452064178,0 -41.29769588222678,-21.75944158979047,0 -41.29622700644909,-21.75967301377534,0 -41.29585654960022,-21.75977009443954,0 -41.29648391731595,-21.76099703880789,0 
+						</coordinates>
+					</LinearRing>
+				</outerBoundaryIs>
+			</Polygon>
+		</Placemark>
+	</Document>
+	<Document>
+		<name>TRAVESSA SANTO ELIAS.kml</name>
+		<StyleMap id="msn_ylw-pushpin13">
+			<Pair>
+				<key>normal</key>
+				<styleUrl>#sn_ylw-pushpin12</styleUrl>
+			</Pair>
+			<Pair>
+				<key>highlight</key>
+				<styleUrl>#sh_ylw-pushpin11</styleUrl>
+			</Pair>
+		</StyleMap>
+		<Style id="sh_ylw-pushpin11">
+			<IconStyle>
+				<scale>1.3</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>800000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>800000ff</color>
+			</PolyStyle>
+		</Style>
+		<Style id="sn_ylw-pushpin12">
+			<IconStyle>
+				<scale>1.1</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>800000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>800000ff</color>
+			</PolyStyle>
+		</Style>
+		<Placemark>
+			<name>TRAVESSA SANTO ELIAS</name>
+			<styleUrl>#msn_ylw-pushpin13</styleUrl>
+			<Polygon>
+				<tessellate>1</tessellate>
+				<outerBoundaryIs>
+					<LinearRing>
+						<coordinates>
+							-41.32326369145302,-21.7491807032461,0 -41.32018223242702,-21.7495728200498,0 -41.32004139019022,-21.74892877087873,0 -41.32296269822808,-21.74846758567404,0 -41.32326369145302,-21.7491807032461,0 
+						</coordinates>
+					</LinearRing>
+				</outerBoundaryIs>
+			</Polygon>
+		</Placemark>
+	</Document>
+	<Document>
+		<name>Norte_Itaperuna_Morro do Cristo - Novo.kml</name>
+		<StyleMap id="msn_ylw-pushpin14">
+			<Pair>
+				<key>normal</key>
+				<styleUrl>#sn_ylw-pushpin13</styleUrl>
+			</Pair>
+			<Pair>
+				<key>highlight</key>
+				<styleUrl>#sh_ylw-pushpin12</styleUrl>
+			</Pair>
+		</StyleMap>
+		<Style id="sh_ylw-pushpin12">
+			<IconStyle>
+				<scale>1.3</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>7f0000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>7fffffff</color>
+			</PolyStyle>
+		</Style>
+		<Style id="sn_ylw-pushpin13">
+			<IconStyle>
+				<scale>1.1</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>7f0000ff</color>
+			</LineStyle>
+			<PolyStyle>
+				<color>7fffffff</color>
+			</PolyStyle>
+		</Style>
+		<Placemark>
+			<name>Norte_Itaperuna_Morro do Cristo - Novo</name>
+			<styleUrl>#msn_ylw-pushpin14</styleUrl>
+			<Polygon>
+				<tessellate>1</tessellate>
+				<outerBoundaryIs>
+					<LinearRing>
+						<coordinates>
+							-41.88522148716953,-21.20175821363041,0 -41.88507585678324,-21.20229317402479,0 -41.88489132201708,-21.2029688642499,0 -41.88442377740095,-21.20371338586856,0 -41.8839863141276,-21.20419616398146,0 -41.88347764782043,-21.20483154814173,0 -41.88276187642331,-21.20507960324511,0 -41.88274079267381,-21.20485388367429,0 -41.88267124023718,-21.20453867868899,0 -41.88251548895255,-21.20425728333498,0 -41.88250078183173,-21.20382631381493,0 -41.8827804722478,-21.20313289350598,0 -41.88285865447423,-21.20276939400272,0 -41.88285075389171,-21.20197107364976,0 -41.88287717406591,-21.20154713910645,0 -41.88375036032088,-21.20137516966543,0 -41.88436095407859,-21.20129617421708,0 -41.88469681731846,-21.20126674721577,0 -41.88495741533124,-21.2013585028261,0 -41.88522148716953,-21.20175821363041,0 
+						</coordinates>
+					</LinearRing>
+				</outerBoundaryIs>
+			</Polygon>
+		</Placemark>
+	</Document>
+	<Document>
+		<name>Morro do Cruzeiro versão 11-2019</name>
+		<open>1</open>
+		<LookAt>
+			<longitude>-42.20114503372594</longitude>
+			<latitude>-21.40678908502713</latitude>
+			<altitude>0</altitude>
+			<heading>3.024675696524991e-10</heading>
+			<tilt>45.00000000167599</tilt>
+			<range>1091.934862915898</range>
+			<gx:altitudeMode>relativeToSeaFloor</gx:altitudeMode>
+		</LookAt>
+		<Style>
+			<ListStyle>
+				<listItemType>check</listItemType>
+				<bgColor>00ffffff</bgColor>
+				<maxSnippetLines>2</maxSnippetLines>
+			</ListStyle>
+		</Style>
+		<StyleMap id="msn_ylw-pushpin15">
+			<Pair>
+				<key>normal</key>
+				<styleUrl>#sn_ylw-pushpin14</styleUrl>
+			</Pair>
+			<Pair>
+				<key>highlight</key>
+				<styleUrl>#sh_ylw-pushpin13</styleUrl>
+			</Pair>
+		</StyleMap>
+		<Style id="sh_ylw-pushpin13">
+			<IconStyle>
+				<scale>1.3</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>ff00ffff</color>
+				<width>2</width>
+			</LineStyle>
+			<PolyStyle>
+				<color>9c7fffff</color>
+			</PolyStyle>
+		</Style>
+		<Style id="sn_ylw-pushpin14">
+			<IconStyle>
+				<scale>1.1</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+			<LineStyle>
+				<color>ff00ffff</color>
+				<width>2</width>
+			</LineStyle>
+			<PolyStyle>
+				<color>9c7fffff</color>
+			</PolyStyle>
+		</Style>
+		<Placemark>
+			<name>Morro do Cruzeiro versão 11-2019</name>
+			<styleUrl>#msn_ylw-pushpin15</styleUrl>
+			<Polygon>
+				<tessellate>1</tessellate>
+				<outerBoundaryIs>
+					<LinearRing>
+						<coordinates>
+							-42.20422326876558,-21.40477614463715,0 -42.20424942113895,-21.40553892580524,0 -42.20427478895183,-21.40604589214139,0 -42.20409218294461,-21.40650177388713,0 -42.20382741170477,-21.40702455713617,0 -42.20228412131081,-21.40614379479632,0 -42.20141299331534,-21.40722160275458,0 -42.20158203539869,-21.40793453576363,0 -42.20122718822005,-21.40806465595159,0 -42.20113035441729,-21.40792520041972,0 -42.19996360313174,-21.40838851151511,0 -42.19983915298165,-21.40855860006671,0 -42.19945861405879,-21.40923063745154,0 -42.19956842824186,-21.40952114947818,0 -42.19875235878772,-21.40994607649088,0 -42.19842030260823,-21.40959222031635,0 -42.19819076283475,-21.40921451072529,0 -42.19800898972119,-21.408750711641,0 -42.19800026572023,-21.40806463027812,0 -42.19798620153432,-21.40746558720927,0 -42.19803576009439,-21.40702611984381,0 -42.19905705978467,-21.40723704978904,0 -42.2011943993648,-21.4051681872907,0 -42.20171733310308,-21.40562131118089,0 -42.20175199504158,-21.40559019067995,0 -42.20398238780087,-21.40361107536545,0 -42.20422326876558,-21.40477614463715,0 
+						</coordinates>
+					</LinearRing>
+				</outerBoundaryIs>
+			</Polygon>
+		</Placemark>
+	</Document>
+</Folder>
+</kml>
