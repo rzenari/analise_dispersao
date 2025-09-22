@@ -16,6 +16,7 @@ import io
 import os
 import glob
 import zipfile
+import requests
 
 # ==============================================================================
 # 2. CONFIGURAÇÃO DA PÁGINA E TÍTULOS
@@ -691,3 +692,4 @@ if uploaded_file is not None:
             st.warning("Nenhum dado para exibir com os filtros atuais.")
 else:
     st.info("Aguardando o upload de um arquivo para iniciar a análise.")
+
