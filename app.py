@@ -17,8 +17,7 @@ import os
 import glob
 import zipfile
 import requests
-from datetime import datetime, timedelta
-import time
+from datetime import datetime
 
 # ==============================================================================
 # 2. CONFIGURAÇÃO DA PÁGINA E TÍTULOS
@@ -240,34 +239,6 @@ def df_to_excel(df):
     return output.getvalue()
 
 @st.cache_data(ttl=3600)
-def get_historical_weather(lat, lon, api_key):
-    """Busca o histórico de chuva do dia anterior."""
-    if not api_key:
-        return "Chave da API de Histórico não configurada."
-
-    yesterday = datetime.now() - timedelta(days=1)
-    start_of_day = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
-    end_of_day = yesterday.replace(hour=23, minute=59, second=59, microsecond=0)
-    
-    start_timestamp = int(start_of_day.timestamp())
-    end_timestamp = int(end_of_day.timestamp())
-
-    URL = f"https://history.openweathermap.org/data/2.5/history/city?lat={lat}&lon={lon}&type=hour&start={start_timestamp}&end={end_timestamp}&appid={api_key}"
-    
-    try:
-        response = requests.get(URL)
-        response.raise_for_status()
-        data = response.json()
-        total_rain = sum(item.get('rain', {}).get('1h', 0) for item in data.get('list', []))
-        return round(total_rain, 1)
-    except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 401:
-            return "Chave de API inválida para o serviço de histórico."
-        return f"Erro HTTP: {e}"
-    except Exception as e:
-        return f"Erro ao buscar histórico: {e}"
-
-@st.cache_data(ttl=3600)
 def get_weather_forecast(lat, lon, api_key):
     """Busca a previsão de 5 dias da API e estrutura por período, com fallback para o dia atual."""
     URL = f"https://api.openweathermap.org/data/2.5/forecast?lat={lat}&lon={lon}&appid={api_key}&units=metric&lang=pt_br"
@@ -300,14 +271,14 @@ def get_weather_forecast(lat, lon, api_key):
         # Lógica de Fallback para o dia atual
         if today_str in daily_data:
             if daily_data[today_str]['manha_forecast'] is None:
-                first_forecast_today = next((f for f in data['list'] if datetime.fromtimestamp(f['dt']).strftime('%Y-%m-%d') == today_str and datetime.fromtimestamp(f['dt']).hour < 12), None)
-                if first_forecast_today is None: # Se já passou do meio-dia, pega o primeiro disponível
-                    first_forecast_today = next((f for f in data['list'] if datetime.fromtimestamp(f['dt']).strftime('%Y-%m-%d') == today_str), None)
-                daily_data[today_str]['manha_forecast'] = first_forecast_today
+                first_available_forecast = next((f for f in data['list'] if datetime.fromtimestamp(f['dt']).strftime('%Y-%m-%d') == today_str), None)
+                daily_data[today_str]['manha_forecast'] = first_available_forecast
 
             if daily_data[today_str]['tarde_forecast'] is None:
-                first_forecast_afternoon = next((f for f in data['list'] if datetime.fromtimestamp(f['dt']).strftime('%Y-%m-%d') == today_str and datetime.fromtimestamp(f['dt']).hour >= 12), None)
-                daily_data[today_str]['tarde_forecast'] = first_forecast_afternoon
+                afternoon_fallback_forecast = next((f for f in data['list'] if datetime.fromtimestamp(f['dt']).strftime('%Y-%m-%d') == today_str and datetime.fromtimestamp(f['dt']).hour >= 17), None)
+                if afternoon_fallback_forecast is None:
+                     afternoon_fallback_forecast = daily_data[today_str]['manha_forecast']
+                daily_data[today_str]['tarde_forecast'] = afternoon_fallback_forecast
 
         forecast_list = []
         for date, periods in sorted(daily_data.items())[:5]:
@@ -554,80 +525,43 @@ if uploaded_file is not None:
                 with tabs[tab_index]: # Pacotes de Trabalho
                     cos_simulados = gdf_alocados_final['centro_operativo'].unique() if not gdf_alocados_final.empty else []
                     metas_filtradas = df_metas[df_metas['centro_operativo'].isin(cos_simulados)]
-                    
                     st.subheader("Painel de Simulação")
                     if not metas_filtradas.empty:
-                        equipes_disponiveis = metas_filtradas['equipes'].sum()
-                        meta_diaria_total = metas_filtradas['meta_diária'].sum()
+                        equipes_disponiveis, meta_diaria_total = metas_filtradas['equipes'].sum(), metas_filtradas['meta_diária'].sum()
                         metas_filtradas['expectativa_execucao'] = metas_filtradas['equipes'] * metas_filtradas['produção']
                         expectativa_total = metas_filtradas['expectativa_execucao'].sum()
-                        
-                        servicos_agrupados_para_pacotes = len(gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Agrupado'])
-                        servicos_alocados = len(gdf_alocados_final)
+                        servicos_agrupados_para_pacotes, servicos_alocados = len(gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Agrupado']), len(gdf_alocados_final)
                         pacotes_criados = gdf_alocados_final['pacote_id'].nunique() if not gdf_alocados_final.empty else 0
                         servicos_excedentes = len(gdf_excedentes_final) if 'gdf_excedentes_final' in locals() else total_servicos - servicos_alocados
-
                         aderencia_meta = (servicos_alocados / meta_diaria_total * 100) if meta_diaria_total > 0 else 0
                         ocupacao_equipes = (pacotes_criados / equipes_disponiveis * 100) if equipes_disponiveis > 0 else 0
-
                         col1, col2, col3 = st.columns(3)
                         with col1:
-                            st.markdown("##### Parâmetros de Planejamento")
-                            st.metric("Equipes Disponíveis", f"{int(equipes_disponiveis)}")
-                            st.metric("Meta Diária (CO)", f"{int(meta_diaria_total)}")
-                            st.metric("Expectativa de Execução", f"{int(expectativa_total)}")
+                            st.markdown("##### Parâmetros de Planejamento"); st.metric("Equipes Disponíveis", f"{int(equipes_disponiveis)}"); st.metric("Meta Diária (CO)", f"{int(meta_diaria_total)}"); st.metric("Expectativa de Execução", f"{int(expectativa_total)}")
                         with col2:
-                            st.markdown("##### Resultado da Simulação")
-                            st.metric("Serviços Agrupados (Roteirizáveis)", f"{servicos_agrupados_para_pacotes}")
-                            st.metric("Serviços Alocados", f"{servicos_alocados}")
-                            st.metric("Pacotes Criados", f"{pacotes_criados}")
-                            st.metric("Serviços Excedentes", f"{servicos_excedentes}")
+                            st.markdown("##### Resultado da Simulação"); st.metric("Serviços Agrupados (Roteirizáveis)", f"{servicos_agrupados_para_pacotes}"); st.metric("Serviços Alocados", f"{servicos_alocados}"); st.metric("Pacotes Criados", f"{pacotes_criados}"); st.metric("Serviços Excedentes", f"{servicos_excedentes}")
                         with col3:
-                            st.markdown("##### Análise de Desempenho")
-                            st.metric("Aderência à Meta", f"{aderencia_meta:.1f}%")
-                            st.metric("Ocupação das Equipes", f"{ocupacao_equipes:.1f}%")
-                    
+                            st.markdown("##### Análise de Desempenho"); st.metric("Aderência à Meta", f"{aderencia_meta:.1f}%"); st.metric("Ocupação das Equipes", f"{ocupacao_equipes:.1f}%")
                     st.markdown("---")
-                    
                     if not gdf_filtrado_base.empty:
                         map_center_pacotes = [gdf_filtrado_base.latitude.mean(), gdf_filtrado_base.longitude.mean()]
                         m_pacotes = folium.Map(location=map_center_pacotes, zoom_start=10)
                         cores_co = {co: color for co, color in zip(gdf_filtrado_base['centro_operativo'].unique(), ['blue', 'green', 'purple', 'orange', 'darkred', 'red', 'lightred', 'beige', 'darkblue', 'darkgreen', 'cadetblue', 'lightgreen', 'pink', 'lightblue', 'lightgray', 'black'])}
-                        
                         desenhar_camadas_kml(m_pacotes, geometrias_kml_dict, kml_laranja_dict)
-
                         if not gdf_alocados_final.empty:
-                            gdf_hulls_pacotes = gdf_alocados_final.dissolve(by=['centro_operativo', 'pacote_id']).convex_hull.reset_index()
-                            gdf_hulls_pacotes = gdf_hulls_pacotes.rename(columns={0: 'geometry'}).set_geometry('geometry')
-                            
+                            gdf_hulls_pacotes = gdf_alocados_final.dissolve(by=['centro_operativo', 'pacote_id']).convex_hull.reset_index().rename(columns={0: 'geometry'}).set_geometry('geometry')
                             counts_pacotes = gdf_alocados_final.groupby(['centro_operativo', 'pacote_id']).size().rename('contagem').reset_index()
                             gdf_hulls_pacotes = gdf_hulls_pacotes.merge(counts_pacotes, on=['centro_operativo', 'pacote_id'])
-                            
-                            gdf_hulls_pacotes_proj = gdf_hulls_pacotes.to_crs("EPSG:3857")
-                            gdf_hulls_pacotes['area_km2'] = (gdf_hulls_pacotes_proj.geometry.area / 1_000_000).round(2)
-                            
-                            folium.GeoJson(
-                                gdf_hulls_pacotes,
-                                style_function=lambda feature: {'color': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'weight': 2.5, 'fillColor': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'fillOpacity': 0.25},
-                                tooltip=folium.GeoJsonTooltip(fields=['centro_operativo', 'pacote_id', 'contagem', 'area_km2'], aliases=['CO:', 'Pacote:', 'Nº de Serviços:', 'Área (km²):'], localize=True, sticky=True)
-                            ).add_to(m_pacotes)
-                            
-                            for _, row in gdf_alocados_final.iterrows():
-                                folium.CircleMarker(
-                                    location=[row['latitude'], row['longitude']], radius=3,
-                                    color=cores_co.get(row['centro_operativo'], 'gray'),
-                                    fill=True, fill_opacity=1, popup=f"Pacote: {row['pacote_id']}"
-                                ).add_to(m_pacotes)
-                        
+                            gdf_hulls_pacotes['area_km2'] = (gdf_hulls_pacotes.to_crs("EPSG:3857").geometry.area / 1_000_000).round(2)
+                            folium.GeoJson(gdf_hulls_pacotes, style_function=lambda feature: {'color': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'weight': 2.5, 'fillColor': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'fillOpacity': 0.25}, tooltip=folium.GeoJsonTooltip(fields=['centro_operativo', 'pacote_id', 'contagem', 'area_km2'], aliases=['CO:', 'Pacote:', 'Nº de Serviços:', 'Área (km²):'], localize=True, sticky=True)).add_to(m_pacotes)
+                            for _, row in gdf_alocados_final.iterrows(): folium.CircleMarker(location=[row['latitude'], row['longitude']], radius=3, color=cores_co.get(row['centro_operativo'], 'gray'), fill=True, fill_opacity=1, popup=f"Pacote: {row['pacote_id']}").add_to(m_pacotes)
                         st_folium(m_pacotes, use_container_width=True, height=700)
-                    else:
-                        st.info("Nenhum pacote de trabalho para simular.")
+                    else: st.info("Nenhum pacote de trabalho para simular.")
                 tab_index += 1
             
             with tabs[tab_index]: # Painel de Risco Climático
                 st.subheader("Painel de Risco Climático")
                 api_key_forecast = st.secrets.get("OPENWEATHER_API_KEY")
-                api_key_history = st.secrets.get("OPENWEATHER_HISTORY_API_KEY", "") # Chave separada para o histórico
 
                 if not api_key_forecast:
                     st.error("Chave da API OpenWeatherMap (Forecast) não encontrada.")
@@ -637,16 +571,6 @@ if uploaded_file is not None:
                     
                     for co, coords in co_coords.items():
                         with st.expander(f"**{co}**"):
-                            # --- DADOS DE ONTEM ---
-                            st.markdown("##### Ontem")
-                            historical_rain = get_historical_weather(coords[0], coords[1], api_key_history)
-                            if isinstance(historical_rain, (int, float)):
-                                st.metric(label="Chuva Acumulada (24h)", value=f"{historical_rain} mm")
-                            else:
-                                st.warning(f"Não foi possível obter o histórico: {historical_rain}")
-                            st.markdown("---")
-                            
-                            # --- PREVISÃO PARA HOJE E DIAS FUTUROS ---
                             st.markdown("##### Hoje e Próximos Dias")
                             forecast_data = get_weather_forecast(coords[0], coords[1], api_key_forecast)
                             if isinstance(forecast_data, list):
@@ -663,12 +587,10 @@ if uploaded_file is not None:
                                             is_rainy_now = any(k in manha['condition'].lower() for k in ["chuva", "tempestade"])
                                             is_windy_now = manha['wind_speed_kmh'] > 40.0
                                             heavy_overnight_rain = day['rain_madrugada'] > 5.0
-                                            heavy_yesterday_rain = isinstance(historical_rain, (int, float)) and historical_rain > 15.0
 
-                                            if is_rainy_now or is_windy_now or heavy_overnight_rain or heavy_yesterday_rain:
+                                            if is_rainy_now or is_windy_now or heavy_overnight_rain:
                                                 st.markdown("⚠️ **Possível Contingência**")
-                                                if heavy_yesterday_rain and not(is_rainy_now or is_windy_now or heavy_overnight_rain): st.caption("*(Impacto por chuva no dia anterior)*")
-                                                elif heavy_overnight_rain and not(is_rainy_now or is_windy_now): st.caption("*(Impacto por chuva na madrugada)*")
+                                                if heavy_overnight_rain and not(is_rainy_now or is_windy_now): st.caption("*(Impacto por chuva na madrugada)*")
                                             else: st.markdown("✅ **Operação Normal**")
                                         else: st.info("Dados indisponíveis.")
                                     with col2: # Tarde
@@ -692,12 +614,11 @@ if uploaded_file is not None:
                 - **Detecção de Áreas de Exceção (KML/KMZ):** O script primeiramente lê todos os arquivos `.kml` e `.kmz` da pasta do projeto para identificar polígonos de áreas de risco ou ilhas logísticas. Uma "Área Laranja" de 120 metros é criada ao redor destas áreas como uma zona de pré-risco, que pode ser desativada para áreas específicas na barra lateral. Serviços dentro de ambas as zonas são classificados separadamente e excluídos da análise de clusterização.
                 - **Detecção de Hotspots (DBSCAN):** Nos serviços restantes, o DBSCAN é usado para encontrar "hotspots" - áreas de alta concentração de serviços. Ele agrupa pontos densamente próximos e marca como "dispersos" os que estão isolados.
                 - **Simulação de Pacotes (Ranking de Densidade):** A lógica para criar pacotes de trabalho prioriza a eficiência. Os hotspots ("Agrupados") são transformados em "pacotes candidatos". Se um hotspot for muito grande para uma única equipe, ele é subdividido de forma inteligente. Todos os candidatos são então ranqueados pela sua densidade (serviços por km²), e os melhores são atribuídos às equipes disponíveis, respeitando o número de **Serviços Designados**.
-                - **Painel de Risco Climático:** A aba "Painel de Risco Climático" foi aprimorada para funcionar como um painel de análise de risco, considerando não apenas o futuro, mas também as condições recentes que podem impactar a operação atual. A lógica utiliza três fontes de dados para determinar o status operacional:
-                    - **Análise Histórica (Dia Anterior):** A ferramenta busca o volume total de chuva acumulado nas 24 horas do dia anterior. Um volume elevado (ex: acima de 15 mm) indica um possível stress na rede e alocação de equipes em emergências, representando um risco para a operação do dia seguinte, mesmo com tempo bom.
+                - **Painel de Risco Climático:** A aba "Painel de Risco Climático" foi aprimorada para funcionar como um painel de análise de risco. A lógica utiliza dois fatores para determinar o status operacional:
                     - **Análise da Madrugada:** É calculado o total de chuva acumulado na madrugada do dia atual (entre 00:00 e 06:00). Um volume significativo (ex: acima de 5 mm) pode impactar o início dos trabalhos.
-                    - **Análise Presente e Futura:** Para o dia de hoje, o período da "Manhã" utiliza os dados de tempo mais recentes disponíveis, garantindo precisão. Os demais períodos e dias futuros utilizam as previsões horárias padrões.
+                    - **Análise Presente e Futura:** Para o dia de hoje, a ferramenta utiliza os dados de tempo mais recentes disponíveis para garantir precisão, mesmo que os horários de 09:00 e 15:00 já tenham passado. Os demais períodos e dias futuros utilizam as previsões horárias padrões.
                 
-                Um alerta de "⚠️ **Possível Contingência**" para a manhã é acionado se **qualquer um** desses três fatores de risco for identificado, e uma nota explicativa é exibida para justificar o motivo do alerta.
+                Um alerta de "⚠️ **Possível Contingência**" para a manhã é acionado se for identificada chuva na madrugada ou condições de chuva/vento forte no período da manhã.
                 """)
                 st.subheader("Perguntas Frequentes (FAQ)")
                 st.markdown("""
