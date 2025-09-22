@@ -552,13 +552,82 @@ if uploaded_file is not None:
 
             if df_metas is not None:
                 with tabs[tab_index]: # Pacotes de Trabalho
-                    # ... (código dos pacotes de trabalho permanece o mesmo) ...
+                    cos_simulados = gdf_alocados_final['centro_operativo'].unique() if not gdf_alocados_final.empty else []
+                    metas_filtradas = df_metas[df_metas['centro_operativo'].isin(cos_simulados)]
+                    
+                    st.subheader("Painel de Simulação")
+                    if not metas_filtradas.empty:
+                        equipes_disponiveis = metas_filtradas['equipes'].sum()
+                        meta_diaria_total = metas_filtradas['meta_diária'].sum()
+                        metas_filtradas['expectativa_execucao'] = metas_filtradas['equipes'] * metas_filtradas['produção']
+                        expectativa_total = metas_filtradas['expectativa_execucao'].sum()
+                        
+                        servicos_agrupados_para_pacotes = len(gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Agrupado'])
+                        servicos_alocados = len(gdf_alocados_final)
+                        pacotes_criados = gdf_alocados_final['pacote_id'].nunique() if not gdf_alocados_final.empty else 0
+                        servicos_excedentes = len(gdf_excedentes_final) if 'gdf_excedentes_final' in locals() else total_servicos - servicos_alocados
+
+                        aderencia_meta = (servicos_alocados / meta_diaria_total * 100) if meta_diaria_total > 0 else 0
+                        ocupacao_equipes = (pacotes_criados / equipes_disponiveis * 100) if equipes_disponiveis > 0 else 0
+
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.markdown("##### Parâmetros de Planejamento")
+                            st.metric("Equipes Disponíveis", f"{int(equipes_disponiveis)}")
+                            st.metric("Meta Diária (CO)", f"{int(meta_diaria_total)}")
+                            st.metric("Expectativa de Execução", f"{int(expectativa_total)}")
+                        with col2:
+                            st.markdown("##### Resultado da Simulação")
+                            st.metric("Serviços Agrupados (Roteirizáveis)", f"{servicos_agrupados_para_pacotes}")
+                            st.metric("Serviços Alocados", f"{servicos_alocados}")
+                            st.metric("Pacotes Criados", f"{pacotes_criados}")
+                            st.metric("Serviços Excedentes", f"{servicos_excedentes}")
+                        with col3:
+                            st.markdown("##### Análise de Desempenho")
+                            st.metric("Aderência à Meta", f"{aderencia_meta:.1f}%")
+                            st.metric("Ocupação das Equipes", f"{ocupacao_equipes:.1f}%")
+                    
+                    st.markdown("---")
+                    
+                    if not gdf_filtrado_base.empty:
+                        map_center_pacotes = [gdf_filtrado_base.latitude.mean(), gdf_filtrado_base.longitude.mean()]
+                        m_pacotes = folium.Map(location=map_center_pacotes, zoom_start=10)
+                        cores_co = {co: color for co, color in zip(gdf_filtrado_base['centro_operativo'].unique(), ['blue', 'green', 'purple', 'orange', 'darkred', 'red', 'lightred', 'beige', 'darkblue', 'darkgreen', 'cadetblue', 'lightgreen', 'pink', 'lightblue', 'lightgray', 'black'])}
+                        
+                        desenhar_camadas_kml(m_pacotes, geometrias_kml_dict, kml_laranja_dict)
+
+                        if not gdf_alocados_final.empty:
+                            gdf_hulls_pacotes = gdf_alocados_final.dissolve(by=['centro_operativo', 'pacote_id']).convex_hull.reset_index()
+                            gdf_hulls_pacotes = gdf_hulls_pacotes.rename(columns={0: 'geometry'}).set_geometry('geometry')
+                            
+                            counts_pacotes = gdf_alocados_final.groupby(['centro_operativo', 'pacote_id']).size().rename('contagem').reset_index()
+                            gdf_hulls_pacotes = gdf_hulls_pacotes.merge(counts_pacotes, on=['centro_operativo', 'pacote_id'])
+                            
+                            gdf_hulls_pacotes_proj = gdf_hulls_pacotes.to_crs("EPSG:3857")
+                            gdf_hulls_pacotes['area_km2'] = (gdf_hulls_pacotes_proj.geometry.area / 1_000_000).round(2)
+                            
+                            folium.GeoJson(
+                                gdf_hulls_pacotes,
+                                style_function=lambda feature: {'color': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'weight': 2.5, 'fillColor': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'fillOpacity': 0.25},
+                                tooltip=folium.GeoJsonTooltip(fields=['centro_operativo', 'pacote_id', 'contagem', 'area_km2'], aliases=['CO:', 'Pacote:', 'Nº de Serviços:', 'Área (km²):'], localize=True, sticky=True)
+                            ).add_to(m_pacotes)
+                            
+                            for _, row in gdf_alocados_final.iterrows():
+                                folium.CircleMarker(
+                                    location=[row['latitude'], row['longitude']], radius=3,
+                                    color=cores_co.get(row['centro_operativo'], 'gray'),
+                                    fill=True, fill_opacity=1, popup=f"Pacote: {row['pacote_id']}"
+                                ).add_to(m_pacotes)
+                        
+                        st_folium(m_pacotes, use_container_width=True, height=700)
+                    else:
+                        st.info("Nenhum pacote de trabalho para simular.")
                 tab_index += 1
             
             with tabs[tab_index]: # Painel de Risco Climático
                 st.subheader("Painel de Risco Climático")
                 api_key_forecast = st.secrets.get("OPENWEATHER_API_KEY")
-                api_key_history = st.secrets.get("OPENWEATHER_HISTORY_API_KEY") # Chave separada para o histórico
+                api_key_history = st.secrets.get("OPENWEATHER_HISTORY_API_KEY", "") # Chave separada para o histórico
 
                 if not api_key_forecast:
                     st.error("Chave da API OpenWeatherMap (Forecast) não encontrada.")
