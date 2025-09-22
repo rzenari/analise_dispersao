@@ -30,23 +30,23 @@ st.write("Faça o upload da sua planilha de cortes para analisar a distribuiçã
 # ==============================================================================
 
 @st.cache_data
-def carregar_kmls(pasta_projeto, buffer_distancia_m=100):
+def carregar_kmls(pasta_projeto):
     """
-    Varre a pasta, lê arquivos .kml e .kmz, corrige geometrias,
-    cria uma área de risco unificada e uma "área laranja" de buffer.
-    Retorna as geometrias e um log de depuração.
+    Varre a pasta, lê arquivos .kml e .kmz, corrige geometrias inválidas
+    e retorna um dicionário de geometrias e um log de depuração.
     """
     kml_files = glob.glob(os.path.join(pasta_projeto, '*.kml'))
     kmz_files = glob.glob(os.path.join(pasta_projeto, '*.kmz'))
     all_gis_files = kml_files + kmz_files
 
     if not all_gis_files:
-        return None, None, pd.DataFrame([{'Arquivo': 'Nenhum arquivo .kml ou .kmz encontrado', 'Status': 'N/A'}])
+        return None, pd.DataFrame([{'Arquivo': 'Nenhum arquivo .kml ou .kmz encontrado', 'Status': 'N/A'}])
     
     debug_log = []
-    poligonos_validos = []
+    geometrias_individuais = {}
     
     for gis_file in all_gis_files:
+        nome_arquivo = os.path.basename(gis_file)
         try:
             gdf_file = None
             if gis_file.lower().endswith('.kml'):
@@ -59,7 +59,7 @@ def carregar_kmls(pasta_projeto, buffer_distancia_m=100):
                             gdf_file = gpd.read_file(kml_content, driver='KML')
             
             if gdf_file is None or gdf_file.empty:
-                debug_log.append({'Arquivo': os.path.basename(gis_file), 'Status': '⚠️ Aviso', 'Erro': 'Nenhum polígono encontrado.'})
+                debug_log.append({'Arquivo': nome_arquivo, 'Status': '⚠️ Aviso', 'Erro': 'Nenhum polígono encontrado.'})
                 continue
 
             gdf_file = gdf_file[gdf_file.geometry.type.isin(['Polygon', 'MultiPolygon'])]
@@ -74,25 +74,18 @@ def carregar_kmls(pasta_projeto, buffer_distancia_m=100):
                     geometrias_corrigidas.append(poligono)
             
             if geometrias_corrigidas:
-                poligonos_validos.extend(geometrias_corrigidas)
-                debug_log.append({'Arquivo': os.path.basename(gis_file), 'Status': '✅ Sucesso'})
+                geometrias_individuais[nome_arquivo] = gpd.GeoSeries(geometrias_corrigidas).unary_union
+                debug_log.append({'Arquivo': nome_arquivo, 'Status': '✅ Sucesso'})
             else:
-                debug_log.append({'Arquivo': os.path.basename(gis_file), 'Status': '❌ Falha', 'Erro': 'Geometria inválida, não foi possível corrigir.'})
+                debug_log.append({'Arquivo': nome_arquivo, 'Status': '❌ Falha', 'Erro': 'Geometria inválida, não foi possível corrigir.'})
 
         except Exception as e:
-            debug_log.append({'Arquivo': os.path.basename(gis_file), 'Status': '❌ Falha', 'Erro': str(e)})
+            debug_log.append({'Arquivo': nome_arquivo, 'Status': '❌ Falha', 'Erro': str(e)})
 
-    if not poligonos_validos:
-        return None, None, pd.DataFrame(debug_log)
+    if not geometrias_individuais:
+        return None, pd.DataFrame(debug_log)
 
-    geometria_risco = gpd.GeoSeries(poligonos_validos, crs="EPSG:4326").unary_union
-    
-    geometria_risco_proj = gpd.GeoSeries([geometria_risco], crs="EPSG:4326").to_crs("EPSG:3857")
-    buffer_grande = geometria_risco_proj.buffer(buffer_distancia_m)
-    geometria_laranja_proj = buffer_grande.difference(geometria_risco_proj)
-    geometria_laranja = gpd.GeoSeries(geometria_laranja_proj, crs="EPSG:3857").to_crs("EPSG:4326").unary_union
-
-    return geometria_risco, geometria_laranja, pd.DataFrame(debug_log)
+    return geometrias_individuais, pd.DataFrame(debug_log)
 
 
 def carregar_dados_completos(arquivo_enviado):
@@ -257,7 +250,8 @@ if uploaded_file is not None:
     if df_completo_original is not None:
         st.sidebar.success(f"{len(df_completo_original)} registros carregados!")
         
-        kml_risco, kml_laranja, kml_debug_log = carregar_kmls('.')
+        geometrias_kml_dict, kml_debug_log = carregar_kmls('.')
+        
         if kml_debug_log is not None:
             sucesso_count = (kml_debug_log['Status'] == '✅ Sucesso').sum()
             st.sidebar.info(f"{sucesso_count} arquivo(s) KML/KMZ carregado(s) com sucesso.")
@@ -266,6 +260,27 @@ if uploaded_file is not None:
         
         if df_metas is not None: 
             st.sidebar.info(f"Metas carregadas para {len(df_metas)} COs.")
+
+        # --- CONTROLE INTERATIVO DA ÁREA LARANJA ---
+        areas_sem_laranja = []
+        if geometrias_kml_dict:
+            st.sidebar.markdown("### Controle da Área Laranja")
+            nomes_areas = list(geometrias_kml_dict.keys())
+            areas_sem_laranja = st.sidebar.multiselect('Desativar Área Laranja para:', nomes_areas, help="Selecione as áreas de risco que NÃO devem ter a área laranja de 120m ao redor.")
+
+        # --- Lógica de construção das geometrias KML com base na seleção ---
+        kml_risco = None
+        kml_laranja = None
+        if geometrias_kml_dict:
+            kml_risco = gpd.GeoSeries(list(geometrias_kml_dict.values()), crs="EPSG:4326").unary_union
+            
+            poligonos_para_buffer = [poly for name, poly in geometrias_kml_dict.items() if name not in areas_sem_laranja]
+            if poligonos_para_buffer:
+                geometria_para_buffer = gpd.GeoSeries(poligonos_para_buffer, crs="EPSG:4326").unary_union
+                geometria_proj = gpd.GeoSeries([geometria_para_buffer], crs="EPSG:4326").to_crs("EPSG:3857")
+                buffer_grande = geometria_proj.buffer(120) # Distância de 120m
+                geometria_laranja_proj = buffer_grande.difference(geometria_proj)
+                kml_laranja = gpd.GeoSeries(geometria_laranja_proj, crs="EPSG:3857").to_crs("EPSG:4326").unary_union
 
         st.sidebar.markdown("### Filtros da Análise")
         filtros = ['sucursal', 'centro_operativo', 'corte_recorte', 'prioridade']
@@ -301,7 +316,7 @@ if uploaded_file is not None:
             gdf_filtrado_base.loc[indices_risco, 'classificacao'] = 'Área de Risco'
             gdf_risco = gdf_filtrado_base[indices_risco].copy()
 
-        if kml_laranja is not None:
+        if kml_laranja is not None and not kml_laranja.is_empty:
             gdf_temp_para_laranja = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'A ser definido']
             indices_laranja = gdf_temp_para_laranja.within(kml_laranja)
             gdf_filtrado_base.loc[indices_laranja[indices_laranja].index, 'classificacao'] = 'Área Laranja'
@@ -368,18 +383,15 @@ if uploaded_file is not None:
                 st.sidebar.download_button(label="⬇️ Baixar Dispersos (Excel)", data=df_to_excel(df_dispersos_download), file_name='servicos_dispersos.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
             if not gdf_risco.empty:
-                df_risco_download = gdf_risco.drop(columns=['geometry', 'cluster'], errors='ignore')
-                st.sidebar.download_button(label="⬇️ Baixar Área de Risco (Excel)", data=df_to_excel(df_risco_download), file_name='servicos_area_risco.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                st.sidebar.download_button(label="⬇️ Baixar Área de Risco (Excel)", data=df_to_excel(gdf_risco), file_name='servicos_area_risco.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
             
             if not gdf_laranja.empty:
-                df_laranja_download = gdf_laranja.drop(columns=['geometry', 'cluster'], errors='ignore')
-                st.sidebar.download_button(label="⬇️ Baixar Área Laranja (Excel)", data=df_to_excel(df_laranja_download), file_name='servicos_area_laranja.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                st.sidebar.download_button(label="⬇️ Baixar Área Laranja (Excel)", data=df_to_excel(gdf_laranja), file_name='servicos_area_laranja.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
             
             if not gdf_alocados_final.empty:
-                df_pacotes_download = gdf_alocados_final.drop(columns=['geometry', 'cluster'], errors='ignore')
                 st.sidebar.download_button(
                     label="⬇️ Baixar Pacotes de Trabalho (Excel)",
-                    data=df_to_excel(df_pacotes_download),
+                    data=df_to_excel(gdf_alocados_final),
                     file_name='pacotes_de_trabalho.xlsx',
                     mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
                 )
@@ -420,8 +432,8 @@ if uploaded_file is not None:
                         m = folium.Map(location=map_center, zoom_start=11)
                         if kml_risco is not None:
                             folium.GeoJson(kml_risco, style_function=lambda x: {'fillColor': 'red', 'color': 'red', 'weight': 2, 'fillOpacity': 0.2}, tooltip="Área de Risco").add_to(m)
-                        if kml_laranja is not None:
-                            folium.GeoJson(kml_laranja, style_function=lambda x: {'fillColor': 'orange', 'color': 'orange', 'weight': 2, 'fillOpacity': 0.2}, tooltip="Área Laranja (Buffer 100m)").add_to(m)
+                        if kml_laranja is not None and not kml_laranja.is_empty:
+                            folium.GeoJson(kml_laranja, style_function=lambda x: {'fillColor': 'orange', 'color': 'orange', 'weight': 2, 'fillOpacity': 0.2}, tooltip="Área Laranja (Buffer 120m)").add_to(m)
 
                         cor_classificacao = {'Agrupado': 'blue', 'Disperso': 'gray', 'Área de Risco': 'red', 'Área Laranja': 'orange'}
                         for _, row in gdf_visualizacao.iterrows():
@@ -481,7 +493,7 @@ if uploaded_file is not None:
                         m_hull = folium.Map(location=map_center_hull, zoom_start=11)
                         if kml_risco is not None:
                             folium.GeoJson(kml_risco, style_function=lambda x: {'fillColor': 'red', 'color': 'red', 'weight': 2, 'fillOpacity': 0.1}).add_to(m_hull)
-                        if kml_laranja is not None:
+                        if kml_laranja is not None and not kml_laranja.is_empty:
                             folium.GeoJson(kml_laranja, style_function=lambda x: {'fillColor': 'orange', 'color': 'orange', 'weight': 2, 'fillOpacity': 0.1}).add_to(m_hull)
                         try:
                             hulls = gdf_clusters_reais.dissolve(by='cluster').convex_hull
@@ -539,7 +551,7 @@ if uploaded_file is not None:
                         cores_co = {co: color for co, color in zip(gdf_filtrado_base['centro_operativo'].unique(), ['blue', 'green', 'purple', 'orange', 'darkred', 'red', 'lightred', 'beige', 'darkblue', 'darkgreen', 'cadetblue', 'lightgreen', 'pink', 'lightblue', 'lightgray', 'black'])}
                         if kml_risco is not None:
                             folium.GeoJson(kml_risco, style_function=lambda x: {'fillColor': 'red', 'color': 'red', 'weight': 2, 'fillOpacity': 0.1}).add_to(m_pacotes)
-                        if kml_laranja is not None:
+                        if kml_laranja is not None and not kml_laranja.is_empty:
                             folium.GeoJson(kml_laranja, style_function=lambda x: {'fillColor': 'orange', 'color': 'orange', 'weight': 2, 'fillOpacity': 0.1}).add_to(m_pacotes)
 
                         if not gdf_alocados_final.empty:
@@ -575,7 +587,7 @@ if uploaded_file is not None:
                 st.subheader("As Metodologias por Trás da Análise")
                 st.markdown("""
                 Esta ferramenta utiliza uma combinação de algoritmos geoespaciais e de aprendizado de máquina para fornecer insights sobre a distribuição de serviços.
-                - **Detecção de Áreas de Exceção (KML/KMZ):** O script primeiramente lê todos os arquivos `.kml` e `.kmz` da pasta do projeto para identificar polígonos de áreas de risco ou ilhas logísticas. Uma "Área Laranja" de 100 metros é criada ao redor destas áreas como uma zona de pré-risco. Serviços dentro de ambas as áreas são classificados separadamente e excluídos da análise de clusterização.
+                - **Detecção de Áreas de Exceção (KML/KMZ):** O script primeiramente lê todos os arquivos `.kml` e `.kmz` da pasta do projeto para identificar polígonos de áreas de risco ou ilhas logísticas. Uma "Área Laranja" de 120 metros é criada ao redor destas áreas como uma zona de pré-risco. Serviços dentro de ambas as áreas são classificados separadamente e excluídos da análise de clusterização.
                 - **Detecção de Hotspots (DBSCAN):** Nos serviços restantes, o DBSCAN é usado para encontrar "hotspots" - áreas de alta concentração de serviços. Ele agrupa pontos densamente próximos e marca como "dispersos" os que estão isolados.
                 - **Simulação de Pacotes (Ranking de Densidade):** A lógica para criar pacotes de trabalho prioriza a eficiência. Os hotspots ("Agrupados") são transformados em "pacotes candidatos". Se um hotspot for muito grande para uma única equipe, ele é subdividido de forma inteligente. Todos os candidatos são então ranqueados pela sua densidade (serviços por km²), e os melhores são atribuídos às equipes disponíveis, respeitando o número de **Serviços Designados**.
                 """)
