@@ -30,7 +30,7 @@ st.write("Faça o upload da sua planilha de cortes para analisar a distribuiçã
 # ==============================================================================
 
 @st.cache_data
-def carregar_kmls(pasta_projeto, buffer_distancia_m=300):
+def carregar_kmls(pasta_projeto, buffer_distancia_m=100):
     """
     Varre a pasta, lê arquivos .kml e .kmz, corrige geometrias,
     cria uma área de risco unificada e uma "área laranja" de buffer.
@@ -83,7 +83,6 @@ def carregar_kmls(pasta_projeto, buffer_distancia_m=300):
             debug_log.append({'Arquivo': os.path.basename(gis_file), 'Status': '❌ Falha', 'Erro': str(e)})
 
     if not poligonos_validos:
-        # CORREÇÃO: Garante que 3 valores sejam sempre retornados
         return None, None, pd.DataFrame(debug_log)
 
     geometria_risco = gpd.GeoSeries(poligonos_validos, crs="EPSG:4326").unary_union
@@ -422,7 +421,7 @@ if uploaded_file is not None:
                         if kml_risco is not None:
                             folium.GeoJson(kml_risco, style_function=lambda x: {'fillColor': 'red', 'color': 'red', 'weight': 2, 'fillOpacity': 0.2}, tooltip="Área de Risco").add_to(m)
                         if kml_laranja is not None:
-                            folium.GeoJson(kml_laranja, style_function=lambda x: {'fillColor': 'orange', 'color': 'orange', 'weight': 2, 'fillOpacity': 0.2}, tooltip="Área Laranja (Buffer 300m)").add_to(m)
+                            folium.GeoJson(kml_laranja, style_function=lambda x: {'fillColor': 'orange', 'color': 'orange', 'weight': 2, 'fillOpacity': 0.2}, tooltip="Área Laranja (Buffer 100m)").add_to(m)
 
                         cor_classificacao = {'Agrupado': 'blue', 'Disperso': 'gray', 'Área de Risco': 'red', 'Área Laranja': 'orange'}
                         for _, row in gdf_visualizacao.iterrows():
@@ -576,7 +575,7 @@ if uploaded_file is not None:
                 st.subheader("As Metodologias por Trás da Análise")
                 st.markdown("""
                 Esta ferramenta utiliza uma combinação de algoritmos geoespaciais e de aprendizado de máquina para fornecer insights sobre a distribuição de serviços.
-                - **Detecção de Áreas de Exceção (KML/KMZ):** O script primeiramente lê todos os arquivos `.kml` e `.kmz` da pasta do projeto para identificar polígonos de áreas de risco ou ilhas logísticas. Uma "Área Laranja" de 300 metros é criada ao redor destas áreas como uma zona de pré-risco. Serviços dentro de ambas as áreas são classificados separadamente e excluídos da análise de clusterização.
+                - **Detecção de Áreas de Exceção (KML/KMZ):** O script primeiramente lê todos os arquivos `.kml` e `.kmz` da pasta do projeto para identificar polígonos de áreas de risco ou ilhas logísticas. Uma "Área Laranja" de 100 metros é criada ao redor destas áreas como uma zona de pré-risco. Serviços dentro de ambas as áreas são classificados separadamente e excluídos da análise de clusterização.
                 - **Detecção de Hotspots (DBSCAN):** Nos serviços restantes, o DBSCAN é usado para encontrar "hotspots" - áreas de alta concentração de serviços. Ele agrupa pontos densamente próximos e marca como "dispersos" os que estão isolados.
                 - **Simulação de Pacotes (Ranking de Densidade):** A lógica para criar pacotes de trabalho prioriza a eficiência. Os hotspots ("Agrupados") são transformados em "pacotes candidatos". Se um hotspot for muito grande para uma única equipe, ele é subdividido de forma inteligente. Todos os candidatos são então ranqueados pela sua densidade (serviços por km²), e os melhores são atribuídos às equipes disponíveis, respeitando o número de **Serviços Designados**.
                 """)
