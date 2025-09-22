@@ -240,41 +240,64 @@ def df_to_excel(df):
 
 @st.cache_data(ttl=10800)
 def get_weather_forecast(lat, lon, api_key):
-    """Busca a previsão de 5 dias da API OpenWeatherMap."""
+    """Busca a previsão de 5 dias da API OpenWeatherMap e estrutura por período."""
     URL = f"https://api.openweathermap.org/data/2.5/forecast?lat={lat}&lon={lon}&appid={api_key}&units=metric&lang=pt_br"
     try:
         response = requests.get(URL)
         response.raise_for_status()
         data = response.json()
         
-        daily_forecasts = {}
+        daily_data = {}
         for forecast in data['list']:
-            date = datetime.fromtimestamp(forecast['dt']).strftime('%Y-%m-%d')
-            if date not in daily_forecasts or forecast['dt_txt'].endswith('12:00:00'):
-                daily_forecasts[date] = forecast
-        
+            dt_obj = datetime.fromtimestamp(forecast['dt'])
+            date_key = dt_obj.strftime('%Y-%m-%d')
+            hour = dt_obj.hour
+
+            if date_key not in daily_data:
+                daily_data[date_key] = {
+                    'rain_madrugada': 0,
+                    'manha_forecast': None,
+                    'tarde_forecast': None
+                }
+
+            if hour in [0, 3, 6]:
+                daily_data[date_key]['rain_madrugada'] += forecast.get('rain', {}).get('3h', 0)
+            
+            if hour == 9:
+                daily_data[date_key]['manha_forecast'] = forecast
+            
+            if hour == 15:
+                daily_data[date_key]['tarde_forecast'] = forecast
+
         forecast_list = []
-        for date, forecast in sorted(daily_forecasts.items())[:5]:
-            forecast_list.append({
-                "date": datetime.strptime(date, '%Y-%m-%d').strftime('%d/%m'),
-                "condition": forecast['weather'][0]['description'].title(),
-                "icon": f"https://openweathermap.org/img/wn/{forecast['weather'][0]['icon']}@2x.png",
-                "wind_speed_kmh": round(forecast['wind']['speed'] * 3.6, 1),
-                "rain_mm": round(forecast.get('rain', {}).get('3h', 0), 1)
-            })
+        for date, periods in sorted(daily_data.items())[:5]:
+            day_data = {'date': datetime.strptime(date, '%Y-%m-%d').strftime('%d/%m'), 'rain_madrugada': round(periods['rain_madrugada'], 1)}
+            
+            for period_name, forecast_data in [('manha', periods['manha_forecast']), ('tarde', periods['tarde_forecast'])]:
+                if forecast_data:
+                    day_data[period_name] = {
+                        "condition": forecast_data['weather'][0]['description'].title(),
+                        "icon": f"https://openweathermap.org/img/wn/{forecast_data['weather'][0]['icon']}@2x.png",
+                        "wind_speed_kmh": round(forecast_data['wind']['speed'] * 3.6, 1),
+                        "rain_mm": round(forecast_data.get('rain', {}).get('3h', 0), 1)
+                    }
+                else:
+                    day_data[period_name] = None # Lidar com dados ausentes
+            forecast_list.append(day_data)
+        
         return forecast_list
     except requests.exceptions.RequestException as e:
         return f"Erro ao buscar dados: {e}"
 
 def get_operational_status(condition, wind_speed):
-    """Define o status da operação com base no clima."""
+    """Define o status da operação com base no clima do período."""
     is_rainy = any(keyword in condition.lower() for keyword in ["chuva", "tempestade", "chuvisco"])
     is_windy = wind_speed > 40.0
     
     if is_rainy or is_windy:
-        return "⚠️ Possível Contingência"
+        return "⚠️ Possível Contingência", ""
     else:
-        return "✅ Operação Normal"
+        return "✅ Operação Normal", ""
 
 def desenhar_camadas_kml(map_object, risco_dict, laranja_dict):
     """Função auxiliar para desenhar as camadas KML em um mapa Folium."""
@@ -653,16 +676,55 @@ if uploaded_file is not None:
                         with st.expander(f"**{co}**"):
                             forecast_data = get_weather_forecast(coords[0], coords[1], api_key)
                             if isinstance(forecast_data, list):
-                                cols = st.columns(len(forecast_data))
-                                for i, day in enumerate(forecast_data):
-                                    with cols[i]:
-                                        st.markdown(f"**{day['date']}**")
-                                        st.image(day['icon'], width=60)
-                                        st.markdown(day['condition'])
-                                        st.markdown(f"Vento: **{day['wind_speed_kmh']} km/h**")
-                                        if day.get('rain_mm', 0) > 0:
-                                            st.markdown(f"💧 Chuva: **{day['rain_mm']} mm**")
-                                        st.markdown(get_operational_status(day['condition'], day['wind_speed_kmh']))
+                                for day in forecast_data:
+                                    st.markdown(f"#### {day['date']}")
+                                    col1, col2 = st.columns(2)
+
+                                    # --- MANHÃ ---
+                                    with col1:
+                                        st.markdown("**Manhã (09:00)**", help="Previsão para o período da manhã.")
+                                        manha = day.get('manha')
+                                        if manha:
+                                            st.image(manha['icon'], width=60)
+                                            st.markdown(manha['condition'])
+                                            st.markdown(f"Vento: **{manha['wind_speed_kmh']} km/h**")
+                                            if manha['rain_mm'] > 0:
+                                                st.markdown(f"💧 Chuva: **{manha['rain_mm']} mm**")
+
+                                            # Lógica de Contingência da Manhã
+                                            is_rainy_now = any(keyword in manha['condition'].lower() for keyword in ["chuva", "tempestade", "chuvisco"])
+                                            is_windy_now = manha['wind_speed_kmh'] > 40.0
+                                            heavy_overnight_rain = day['rain_madrugada'] > 5.0
+
+                                            if is_rainy_now or is_windy_now or heavy_overnight_rain:
+                                                st.markdown("⚠️ **Possível Contingência**")
+                                                if heavy_overnight_rain and not (is_rainy_now or is_windy_now):
+                                                    st.caption("*(Impacto por chuva na madrugada)*")
+                                            else:
+                                                st.markdown("✅ **Operação Normal**")
+                                        else:
+                                            st.info("Dados indisponíveis.")
+
+                                    # --- TARDE ---
+                                    with col2:
+                                        st.markdown("**Tarde (15:00)**", help="Previsão para o período da tarde.")
+                                        tarde = day.get('tarde')
+                                        if tarde:
+                                            st.image(tarde['icon'], width=60)
+                                            st.markdown(tarde['condition'])
+                                            st.markdown(f"Vento: **{tarde['wind_speed_kmh']} km/h**")
+                                            if tarde['rain_mm'] > 0:
+                                                st.markdown(f"💧 Chuva: **{tarde['rain_mm']} mm**")
+
+                                            # Lógica de Contingência da Tarde
+                                            status, _ = get_operational_status(tarde['condition'], tarde['wind_speed_kmh'])
+                                            if "Contingência" in status:
+                                                st.markdown(f"⚠️ **{status.replace('⚠️ ', '')}**")
+                                            else:
+                                                st.markdown(f"✅ **{status.replace('✅ ', '')}**")
+                                        else:
+                                            st.info("Dados indisponíveis.")
+                                    st.markdown("---")
                             else:
                                 st.warning(f"Não foi possível obter a previsão para {co}. Erro: {forecast_data}")
             tab_index += 1
