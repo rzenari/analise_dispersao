@@ -259,7 +259,8 @@ def get_weather_forecast(lat, lon, api_key):
                 "date": datetime.strptime(date, '%Y-%m-%d').strftime('%d/%m'),
                 "condition": forecast['weather'][0]['description'].title(),
                 "icon": f"https://openweathermap.org/img/wn/{forecast['weather'][0]['icon']}@2x.png",
-                "wind_speed_kmh": round(forecast['wind']['speed'] * 3.6, 1)
+                "wind_speed_kmh": round(forecast['wind']['speed'] * 3.6, 1),
+                "rain_mm": round(forecast.get('rain', {}).get('3h', 0), 1)
             })
         return forecast_list
     except requests.exceptions.RequestException as e:
@@ -335,7 +336,7 @@ if uploaded_file is not None:
                     buffer_grande = geometria_proj.buffer(120)
                     geometria_laranja_proj = buffer_grande.difference(geometria_proj)
                     kml_laranja_dict[nome_arquivo] = gpd.GeoSeries(geometria_laranja_proj, crs="EPSG:3857").to_crs("EPSG:4326").union_all()
-        
+    
         if kml_laranja_dict:
             kml_laranja_unificado = gpd.GeoSeries(list(kml_laranja_dict.values()), crs="EPSG:4326").union_all()
 
@@ -390,7 +391,7 @@ if uploaded_file is not None:
             gdf_filtrado_base.loc[gdf_com_clusters[gdf_com_clusters['cluster'] == -1].index, 'classificacao'] = 'Disperso'
             gdf_filtrado_base = gdf_filtrado_base.merge(gdf_com_clusters[['cluster']], left_index=True, right_index=True, how='left')
         else:
-             gdf_filtrado_base['cluster'] = -1
+            gdf_filtrado_base['cluster'] = -1
         
         gdf_filtrado_base['cluster'] = gdf_filtrado_base['cluster'].fillna(-1)
         gdf_filtrado_base.loc[gdf_filtrado_base['classificacao'] == 'A ser definido', 'classificacao'] = 'Disperso'
@@ -419,7 +420,7 @@ if uploaded_file is not None:
             
             gdf_alocados_final = pd.concat(todos_alocados, ignore_index=True) if todos_alocados else gpd.GeoDataFrame()
             gdf_excedentes_final = pd.concat(todos_excedentes, ignore_index=True) if todos_excedentes else gpd.GeoDataFrame()
-        
+    
         st.header("Resultados da Análise")
         
         if not gdf_filtrado_base.empty:
@@ -453,7 +454,7 @@ if uploaded_file is not None:
 
             gdf_visualizacao = gdf_filtrado_base.copy()
             if tipo_visualizacao != "Todos":
-                 gdf_visualizacao = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == tipo_visualizacao]
+                    gdf_visualizacao = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == tipo_visualizacao]
 
             lista_abas = ["🗺️ Análise Geográfica", "📊 Resumo por CO", "📍 Contorno dos Clusters"]
             if df_metas is not None:
@@ -659,6 +660,8 @@ if uploaded_file is not None:
                                         st.image(day['icon'], width=60)
                                         st.markdown(day['condition'])
                                         st.markdown(f"Vento: **{day['wind_speed_kmh']} km/h**")
+                                        if day.get('rain_mm', 0) > 0:
+                                            st.markdown(f"💧 Chuva: **{day['rain_mm']} mm**")
                                         st.markdown(get_operational_status(day['condition'], day['wind_speed_kmh']))
                             else:
                                 st.warning(f"Não foi possível obter a previsão para {co}. Erro: {forecast_data}")
@@ -693,5 +696,3 @@ if uploaded_file is not None:
             st.warning("Nenhum dado para exibir com os filtros atuais.")
 else:
     st.info("Aguardando o upload de um arquivo para iniciar a análise.")
-
-
