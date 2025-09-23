@@ -280,7 +280,6 @@ def get_weather_forecast(lat, lon, api_key):
             if hour == 15: daily_data[date_key]['tarde_forecast'] = forecast
 
         forecast_list = []
-        # Inserindo o dia de hoje primeiro, se existir nos dados
         if today_str in daily_data:
             day_data = {'date': datetime.strptime(today_str, '%Y-%m-%d').strftime('%d/%m'), 'rain_madrugada': round(daily_data[today_str]['rain_madrugada'], 1), 'is_today': True}
             forecast_list.append(day_data)
@@ -302,7 +301,7 @@ def get_weather_forecast(lat, lon, api_key):
                 else: day_data[period_name] = None
             forecast_list.append(day_data)
         
-        return forecast_list[:5] # Garante que temos no máximo 5 dias
+        return forecast_list[:5]
     except Exception as e: return f"Erro ao buscar dados: {e}"
 
 def get_operational_status(condition, wind_speed):
@@ -475,7 +474,6 @@ if uploaded_file is not None:
                     p_agrupados, p_dispersos, p_risco, p_laranja = (n_agrupados / total_servicos * 100) if total_servicos > 0 else 0, (n_dispersos / total_servicos * 100) if total_servicos > 0 else 0, (n_risco / total_servicos * 100) if total_servicos > 0 else 0, (n_laranja / total_servicos * 100) if total_servicos > 0 else 0
                     col1, col2, col3, col4 = st.columns(4)
                     col1.metric("Nº Agrupados", f"{n_agrupados}", f"{p_agrupados:.1f}%"); col2.metric("Nº Dispersos", f"{n_dispersos}", f"{p_dispersos:.1f}%"); col3.metric("Nº em Área de Risco", f"{n_risco}", f"{p_risco:.1f}%"); col4.metric("Nº em Área Laranja", f"{n_laranja}", f"{p_laranja:.1f}%")
-
                     st.subheader(f"Mapa Interativo")
                     if not gdf_visualizacao.empty:
                         map_center = [gdf_visualizacao.latitude.mean(), gdf_visualizacao.longitude.mean()]
@@ -494,7 +492,10 @@ if uploaded_file is not None:
                     for col in ['Agrupado', 'Disperso', 'Área de Risco', 'Área Laranja']:
                         if col not in resumo_co.columns: resumo_co[col] = 0
                     resumo_co['total'] = resumo_co.sum(axis=1)
-                    for col in ['Agrupado', 'Disperso', 'Área de Risco', 'Área Laranja']: resumo_co[f'% {col}'] = (resumo_co[col] / resumo_co['total'] * 100).round(1)
+                    resumo_co['% Agrupado'] = (resumo_co['Agrupado'] / resumo_co['total'] * 100).round(1)
+                    resumo_co['% Disperso'] = (resumo_co['Disperso'] / resumo_co['total'] * 100).round(1)
+                    resumo_co['% Área de Risco'] = (resumo_co['Área de Risco'] / resumo_co['total'] * 100).round(1)
+                    resumo_co['% Área Laranja'] = (resumo_co['Área Laranja'] / resumo_co['total'] * 100).round(1)
                     resumo_co.reset_index(inplace=True)
                     if df_metas is not None:
                         resumo_simulacao = gdf_alocados_final.groupby('centro_operativo').agg(Serviços_Alocados=('pacote_id', 'size'), Pacotes_Criados=('pacote_id', 'nunique')).reset_index()
@@ -507,7 +508,7 @@ if uploaded_file is not None:
                         resumo_co['Aderência_à_Meta_%'] = (resumo_co['Serviços_Alocados'] / resumo_co['meta_diária'] * 100).fillna(0).round(1)
                         resumo_co['Ocupação_das_Equipes_%'] = (resumo_co['Pacotes_Criados'] / resumo_co['equipes'] * 100).fillna(0).round(1)
                         resumo_co['qualidade_da_carteira'] = resumo_co.apply(calcular_qualidade_carteira, axis=1)
-                        cols_ordem = ['centro_operativo', 'total', 'Agrupado', '% Agrupado', 'Disperso', 'Área de Risco', 'Área Laranja', 'equipes', 'meta_diária', 'Expectativa_Execução', 'Serviços_Alocados', 'Pacotes_Criados', 'Aderência_à_Meta_%', 'Ocupação_das_Equipes_%', 'qualidade_da_carteira']
+                        cols_ordem = ['centro_operativo', 'total', 'Agrupado', '% Agrupado', 'Disperso', '% Disperso', 'Área de Risco', '% Área de Risco', 'Área Laranja', '% Área Laranja', 'equipes', 'meta_diária', 'Expectativa_Execução', 'Serviços_Alocados', 'Pacotes_Criados', 'Aderência_à_Meta_%', 'Ocupação_das_Equipes_%', 'qualidade_da_carteira']
                         cols_existentes = [col for col in cols_ordem if col in resumo_co.columns]
                         resumo_co = resumo_co[cols_existentes].fillna(0)
                     st.dataframe(resumo_co, use_container_width=True)
@@ -587,13 +588,11 @@ if uploaded_file is not None:
             with tabs[tab_index]: # Painel de Risco Climático
                 st.subheader("Painel de Risco Climático")
                 api_key_forecast = st.secrets.get("OPENWEATHER_API_KEY")
-
                 if not api_key_forecast:
                     st.error("Chave da API OpenWeatherMap (Forecast) não encontrada.")
                 else:
                     centroids = gdf_filtrado_base.dissolve(by='centro_operativo').centroid
                     co_coords = {co: (point.y, point.x) for co, point in centroids.items()}
-                    
                     for co, coords in co_coords.items():
                         with st.expander(f"**{co}**"):
                             forecast_data = get_weather_forecast(coords[0], coords[1], api_key_forecast)
