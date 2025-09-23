@@ -18,7 +18,7 @@ import requests
 from datetime import datetime
 
 # ==============================================================================
-# 2. CONFIGURAÇÃO DA PÁGINA E TÍTULOS
+# 2. CONFIGURAÇÃO DA PÁGINA E TÍTulos
 # ==============================================================================
 st.set_page_config(layout="wide", page_title="Análise de Dispersão Geográfica")
 
@@ -280,11 +280,13 @@ def get_weather_forecast(lat, lon, api_key):
             if hour == 15: daily_data[date_key]['tarde_forecast'] = forecast
 
         forecast_list = []
-        for date, periods in sorted(daily_data.items())[:5]:
-            # Ignorar o dia de hoje, que será tratado pela função de tempo real
+        # Inserindo o dia de hoje primeiro, se existir nos dados
+        if today_str in daily_data:
+            day_data = {'date': datetime.strptime(today_str, '%Y-%m-%d').strftime('%d/%m'), 'rain_madrugada': round(daily_data[today_str]['rain_madrugada'], 1), 'is_today': True}
+            forecast_list.append(day_data)
+        
+        for date, periods in sorted(daily_data.items()):
             if date == today_str:
-                day_data = {'date': datetime.strptime(date, '%Y-%m-%d').strftime('%d/%m'), 'rain_madrugada': round(periods['rain_madrugada'], 1), 'is_today': True}
-                forecast_list.append(day_data)
                 continue
 
             day_data = {'date': datetime.strptime(date, '%Y-%m-%d').strftime('%d/%m'), 'is_today': False}
@@ -300,7 +302,7 @@ def get_weather_forecast(lat, lon, api_key):
                 else: day_data[period_name] = None
             forecast_list.append(day_data)
         
-        return forecast_list
+        return forecast_list[:5] # Garante que temos no máximo 5 dias
     except Exception as e: return f"Erro ao buscar dados: {e}"
 
 def get_operational_status(condition, wind_speed):
@@ -416,8 +418,29 @@ if uploaded_file is not None:
 
         gdf_alocados_final = gpd.GeoDataFrame()
         if df_metas is not None:
-            # ... (código de simulação de pacotes permanece o mesmo) ...
-        
+            todos_alocados, todos_excedentes = [], []
+            gdf_para_pacotes = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Agrupado'].copy()
+            cos_filtrados = gdf_para_pacotes['centro_operativo'].unique() if not gdf_para_pacotes.empty else []
+            for co in cos_filtrados:
+                gdf_co = gdf_para_pacotes[gdf_para_pacotes['centro_operativo'] == co].copy()
+                metas_co = df_metas[df_metas['centro_operativo'].str.strip().str.upper() == co.strip().upper()]
+                if not metas_co.empty:
+                    n_equipes = int(metas_co['equipes'].iloc[0])
+                    capacidade_designada = int(metas_co['serviços_designados'].iloc[0])
+                    if n_equipes > 0 and capacidade_designada > 0 and len(gdf_co) > 0:
+                        alocados, excedentes_co = simular_pacotes_por_densidade(gdf_co, n_equipes, capacidade_designada)
+                        todos_alocados.append(alocados)
+                        todos_excedentes.append(excedentes_co)
+                else: todos_excedentes.append(gdf_co)
+            
+            gdf_servicos_restantes = gdf_filtrado_base[gdf_filtrado_base['classificacao'] != 'Agrupado'].copy()
+            if not gdf_servicos_restantes.empty: todos_excedentes.append(gdf_servicos_restantes)
+            
+            if todos_alocados:
+                gdf_alocados_final = gpd.GeoDataFrame(pd.concat(todos_alocados, ignore_index=True), crs="EPSG:4326")
+            if todos_excedentes:
+                gdf_excedentes_final = gpd.GeoDataFrame(pd.concat(todos_excedentes, ignore_index=True), crs="EPSG:4326")
+
         st.header("Resultados da Análise")
         
         if not gdf_filtrado_base.empty:
@@ -446,11 +469,48 @@ if uploaded_file is not None:
             tab_index = 0
 
             with tabs[tab_index]: # Análise Geográfica
-                # ... (código da aba permanece o mesmo) ...
+                with st.spinner('Carregando análise e mapa...'):
+                    st.subheader("Resumo da Análise de Classificação")
+                    total_servicos, n_agrupados, n_dispersos, n_risco, n_laranja = len(gdf_filtrado_base), len(gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Agrupado']), len(gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Disperso']), len(gdf_risco), len(gdf_laranja)
+                    p_agrupados, p_dispersos, p_risco, p_laranja = (n_agrupados / total_servicos * 100) if total_servicos > 0 else 0, (n_dispersos / total_servicos * 100) if total_servicos > 0 else 0, (n_risco / total_servicos * 100) if total_servicos > 0 else 0, (n_laranja / total_servicos * 100) if total_servicos > 0 else 0
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.metric("Nº Agrupados", f"{n_agrupados}", f"{p_agrupados:.1f}%"); col2.metric("Nº Dispersos", f"{n_dispersos}", f"{p_dispersos:.1f}%"); col3.metric("Nº em Área de Risco", f"{n_risco}", f"{p_risco:.1f}%"); col4.metric("Nº em Área Laranja", f"{n_laranja}", f"{p_laranja:.1f}%")
+
+                    st.subheader(f"Mapa Interativo")
+                    if not gdf_visualizacao.empty:
+                        map_center = [gdf_visualizacao.latitude.mean(), gdf_visualizacao.longitude.mean()]
+                        m = folium.Map(location=map_center, zoom_start=11)
+                        desenhar_camadas_kml(m, geometrias_kml_dict, kml_laranja_dict)
+                        cor_classificacao = {'Agrupado': 'blue', 'Disperso': 'gray', 'Área de Risco': 'red', 'Área Laranja': 'orange'}
+                        for _, row in gdf_visualizacao.iterrows(): folium.CircleMarker(location=[row['latitude'], row['longitude']], radius=5, color=cor_classificacao.get(row['classificacao'], 'black'), fill=True, fill_color=cor_classificacao.get(row['classificacao'], 'black'), fill_opacity=0.7, popup=f"Classificação: {row['classificacao']}").add_to(m)
+                        st_folium(m, use_container_width=True, height=700)
+                    else: st.warning("Nenhum serviço para exibir no mapa com os filtros atuais.")
             tab_index += 1
 
             with tabs[tab_index]: # Resumo por CO
-                # ... (código da aba permanece o mesmo) ...
+                with st.spinner('Gerando tabela de resumo...'):
+                    st.subheader("Resumo por Centro Operativo")
+                    resumo_co = gdf_filtrado_base.groupby('centro_operativo')['classificacao'].value_counts().unstack(fill_value=0)
+                    for col in ['Agrupado', 'Disperso', 'Área de Risco', 'Área Laranja']:
+                        if col not in resumo_co.columns: resumo_co[col] = 0
+                    resumo_co['total'] = resumo_co.sum(axis=1)
+                    for col in ['Agrupado', 'Disperso', 'Área de Risco', 'Área Laranja']: resumo_co[f'% {col}'] = (resumo_co[col] / resumo_co['total'] * 100).round(1)
+                    resumo_co.reset_index(inplace=True)
+                    if df_metas is not None:
+                        resumo_simulacao = gdf_alocados_final.groupby('centro_operativo').agg(Serviços_Alocados=('pacote_id', 'size'), Pacotes_Criados=('pacote_id', 'nunique')).reset_index()
+                        resumo_co = pd.merge(resumo_co, resumo_simulacao, on='centro_operativo', how='left')
+                        resumo_co['centro_operativo_join_key'] = resumo_co['centro_operativo'].str.strip().str.upper()
+                        df_metas['centro_operativo_join_key'] = df_metas['centro_operativo'].str.strip().str.upper()
+                        resumo_co = pd.merge(resumo_co, df_metas, on='centro_operativo_join_key', how='left')
+                        if 'centro_operativo_x' in resumo_co.columns: resumo_co = resumo_co.drop(columns=['centro_operativo_y', 'centro_operativo_join_key']).rename(columns={'centro_operativo_x': 'centro_operativo'})
+                        resumo_co['Expectativa_Execução'] = resumo_co['equipes'] * resumo_co['produção']
+                        resumo_co['Aderência_à_Meta_%'] = (resumo_co['Serviços_Alocados'] / resumo_co['meta_diária'] * 100).fillna(0).round(1)
+                        resumo_co['Ocupação_das_Equipes_%'] = (resumo_co['Pacotes_Criados'] / resumo_co['equipes'] * 100).fillna(0).round(1)
+                        resumo_co['qualidade_da_carteira'] = resumo_co.apply(calcular_qualidade_carteira, axis=1)
+                        cols_ordem = ['centro_operativo', 'total', 'Agrupado', '% Agrupado', 'Disperso', 'Área de Risco', 'Área Laranja', 'equipes', 'meta_diária', 'Expectativa_Execução', 'Serviços_Alocados', 'Pacotes_Criados', 'Aderência_à_Meta_%', 'Ocupação_das_Equipes_%', 'qualidade_da_carteira']
+                        cols_existentes = [col for col in cols_ordem if col in resumo_co.columns]
+                        resumo_co = resumo_co[cols_existentes].fillna(0)
+                    st.dataframe(resumo_co, use_container_width=True)
             tab_index += 1
 
             with tabs[tab_index]: # Contorno dos Clusters
@@ -466,12 +526,11 @@ if uploaded_file is not None:
                             hulls = gdf_clusters_reais.dissolve(by='cluster').convex_hull
                             gdf_hulls = gpd.GeoDataFrame(geometry=hulls).reset_index()
                             
-                            # Calculando contagem, area e densidade
                             counts = gdf_clusters_reais.groupby('cluster').size().rename('contagem')
                             gdf_hulls = gdf_hulls.merge(counts, on='cluster')
                             gdf_hulls_proj = gdf_hulls.to_crs("EPSG:3857")
                             gdf_hulls['area_km2'] = (gdf_hulls_proj.geometry.area / 1_000_000).round(2)
-                            gdf_hulls['densidade'] = (gdf_hulls['contagem'] / gdf_hulls['area_km2']).round(2)
+                            gdf_hulls['densidade'] = (gdf_hulls['contagem'] / gdf_hulls['area_km2']).replace([np.inf, -np.inf], 0).round(2)
 
                             folium.GeoJson(
                                 gdf_hulls, 
@@ -489,7 +548,40 @@ if uploaded_file is not None:
 
             if df_metas is not None:
                 with tabs[tab_index]: # Pacotes de Trabalho
-                    # ... (código da aba permanece o mesmo) ...
+                    cos_simulados = gdf_alocados_final['centro_operativo'].unique() if not gdf_alocados_final.empty else []
+                    metas_filtradas = df_metas[df_metas['centro_operativo'].isin(cos_simulados)]
+                    st.subheader("Painel de Simulação")
+                    if not metas_filtradas.empty:
+                        equipes_disponiveis, meta_diaria_total = metas_filtradas['equipes'].sum(), metas_filtradas['meta_diária'].sum()
+                        metas_filtradas['expectativa_execucao'] = metas_filtradas['equipes'] * metas_filtradas['produção']
+                        expectativa_total = metas_filtradas['expectativa_execucao'].sum()
+                        servicos_agrupados_para_pacotes, servicos_alocados = len(gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Agrupado']), len(gdf_alocados_final)
+                        pacotes_criados = gdf_alocados_final['pacote_id'].nunique() if not gdf_alocados_final.empty else 0
+                        servicos_excedentes = len(gdf_excedentes_final) if 'gdf_excedentes_final' in locals() else len(gdf_filtrado_base) - servicos_alocados
+                        aderencia_meta = (servicos_alocados / meta_diaria_total * 100) if meta_diaria_total > 0 else 0
+                        ocupacao_equipes = (pacotes_criados / equipes_disponiveis * 100) if equipes_disponiveis > 0 else 0
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.markdown("##### Parâmetros de Planejamento"); st.metric("Equipes Disponíveis", f"{int(equipes_disponiveis)}"); st.metric("Meta Diária (CO)", f"{int(meta_diaria_total)}"); st.metric("Expectativa de Execução", f"{int(expectativa_total)}")
+                        with col2:
+                            st.markdown("##### Resultado da Simulação"); st.metric("Serviços Agrupados (Roteirizáveis)", f"{servicos_agrupados_para_pacotes}"); st.metric("Serviços Alocados", f"{servicos_alocados}"); st.metric("Pacotes Criados", f"{pacotes_criados}"); st.metric("Serviços Excedentes", f"{servicos_excedentes}")
+                        with col3:
+                            st.markdown("##### Análise de Desempenho"); st.metric("Aderência à Meta", f"{aderencia_meta:.1f}%"); st.metric("Ocupação das Equipes", f"{ocupacao_equipes:.1f}%")
+                    st.markdown("---")
+                    if not gdf_filtrado_base.empty:
+                        map_center_pacotes = [gdf_filtrado_base.latitude.mean(), gdf_filtrado_base.longitude.mean()]
+                        m_pacotes = folium.Map(location=map_center_pacotes, zoom_start=10)
+                        cores_co = {co: color for co, color in zip(gdf_filtrado_base['centro_operativo'].unique(), ['blue', 'green', 'purple', 'orange', 'darkred', 'red', 'lightred', 'beige', 'darkblue', 'darkgreen', 'cadetblue', 'lightgreen', 'pink', 'lightblue', 'lightgray', 'black'])}
+                        desenhar_camadas_kml(m_pacotes, geometrias_kml_dict, kml_laranja_dict)
+                        if not gdf_alocados_final.empty:
+                            gdf_hulls_pacotes = gdf_alocados_final.dissolve(by=['centro_operativo', 'pacote_id']).convex_hull.reset_index().rename(columns={0: 'geometry'}).set_geometry('geometry')
+                            counts_pacotes = gdf_alocados_final.groupby(['centro_operativo', 'pacote_id']).size().rename('contagem').reset_index()
+                            gdf_hulls_pacotes = gdf_hulls_pacotes.merge(counts_pacotes, on=['centro_operativo', 'pacote_id'])
+                            gdf_hulls_pacotes['area_km2'] = (gdf_hulls_pacotes.to_crs("EPSG:3857").geometry.area / 1_000_000).round(2)
+                            folium.GeoJson(gdf_hulls_pacotes, style_function=lambda feature: {'color': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'weight': 2.5, 'fillColor': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'fillOpacity': 0.25}, tooltip=folium.GeoJsonTooltip(fields=['centro_operativo', 'pacote_id', 'contagem', 'area_km2'], aliases=['CO:', 'Pacote:', 'Nº de Serviços:', 'Área (km²):'], localize=True, sticky=True)).add_to(m_pacotes)
+                            for _, row in gdf_alocados_final.iterrows(): folium.CircleMarker(location=[row['latitude'], row['longitude']], radius=3, color=cores_co.get(row['centro_operativo'], 'gray'), fill=True, fill_opacity=1, popup=f"Pacote: {row['pacote_id']}").add_to(m_pacotes)
+                        st_folium(m_pacotes, use_container_width=True, height=700)
+                    else: st.info("Nenhum pacote de trabalho para simular.")
                 tab_index += 1
             
             with tabs[tab_index]: # Painel de Risco Climático
@@ -505,47 +597,38 @@ if uploaded_file is not None:
                     for co, coords in co_coords.items():
                         with st.expander(f"**{co}**"):
                             forecast_data = get_weather_forecast(coords[0], coords[1], api_key_forecast)
-                            if isinstance(forecast_data, list):
+                            if isinstance(forecast_data, list) and forecast_data:
                                 for day in forecast_data:
-                                    # --- LÓGICA PARA O DIA DE HOJE ---
                                     if day.get('is_today', False):
                                         st.markdown(f"**Hoje ({day['date']})**")
                                         current_weather = get_current_weather(coords[0], coords[1], api_key_forecast)
                                         if current_weather:
-                                            st.markdown(f"**Condições Atuais ({current_weather['time']})**")
-                                            st.image(current_weather['icon'], width=60)
-                                            st.markdown(current_weather['condition'])
-                                            st.markdown(f"Vento: **{current_weather['wind_speed_kmh']} km/h**")
-                                            
+                                            st.markdown(f"**Condições Atuais ({current_weather['time']})**"); st.image(current_weather['icon'], width=60); st.markdown(current_weather['condition']); st.markdown(f"Vento: **{current_weather['wind_speed_kmh']} km/h**")
                                             is_rainy_now = any(k in current_weather['condition'].lower() for k in ["chuva", "tempestade"])
                                             is_windy_now = current_weather['wind_speed_kmh'] > 40.0
                                             heavy_overnight_rain = day.get('rain_madrugada', 0) > 5.0
-
                                             if is_rainy_now or is_windy_now or heavy_overnight_rain:
                                                 st.markdown("⚠️ **Possível Contingência**")
                                                 if heavy_overnight_rain and not(is_rainy_now or is_windy_now): st.caption("*(Impacto por chuva na madrugada)*")
                                             else: st.markdown("✅ **Operação Normal**")
-                                        else:
-                                            st.warning("Não foi possível obter o tempo atual.")
-                                    
-                                    # --- LÓGICA PARA DIAS FUTUROS ---
+                                        else: st.warning("Não foi possível obter o tempo atual.")
                                     else:
                                         st.markdown(f"**{day['date']}**")
                                         col1, col2 = st.columns(2)
-                                        with col1: # Manhã
+                                        with col1:
                                             manha = day.get('manha')
                                             if manha:
                                                 st.markdown(f"**Manhã ({manha['hour']})**"); st.image(manha['icon'], width=60); st.markdown(manha['condition']); st.markdown(f"Vento: **{manha['wind_speed_kmh']} km/h**")
                                                 if manha['rain_mm'] > 0: st.markdown(f"💧 Chuva: **{manha['rain_mm']} mm**")
                                                 st.markdown(get_operational_status(manha['condition'], manha['wind_speed_kmh']))
-                                            else: st.info("Dados indisponíveis.")
-                                        with col2: # Tarde
+                                            else: st.info("Dados de Manhã indisponíveis.")
+                                        with col2:
                                             tarde = day.get('tarde')
                                             if tarde:
                                                 st.markdown(f"**Tarde ({tarde['hour']})**"); st.image(tarde['icon'], width=60); st.markdown(tarde['condition']); st.markdown(f"Vento: **{tarde['wind_speed_kmh']} km/h**")
                                                 if tarde['rain_mm'] > 0: st.markdown(f"💧 Chuva: **{tarde['rain_mm']} mm**")
                                                 st.markdown(get_operational_status(tarde['condition'], tarde['wind_speed_kmh']))
-                                            else: st.info("Dados indisponíveis.")
+                                            else: st.info("Dados de Tarde indisponíveis.")
                                     st.markdown("<hr>", unsafe_allow_html=True)
                             else: st.warning(f"Não foi possível obter a previsão. Erro: {forecast_data}")
             tab_index += 1
