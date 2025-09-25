@@ -36,7 +36,6 @@ def carregar_malha_improdutividade(filepath='improdutividade_historica.geojson')
     """Carrega o arquivo GeoJSON pré-processado com a malha de improdutividade."""
     try:
         gdf = gpd.read_file(filepath)
-        # Convertendo a string JSON de volta para uma lista de dicionários
         gdf['top_motivos'] = gdf['top_motivos'].apply(json.loads)
         return gdf
     except Exception:
@@ -334,13 +333,13 @@ def desenhar_camadas_kml(map_object, risco_dict, laranja_dict):
             if poligono and not poligono.is_empty:
                 folium.GeoJson(poligono, style_function=lambda x: {'fillColor': 'orange', 'color': 'orange', 'weight': 2, 'fillOpacity': 0.2}, tooltip=f"Área Laranja: {nome}").add_to(map_object)
 
-def formatar_tooltip_improdutividade(row, prefix=""):
+def formatar_tooltip_improdutividade(row):
     """Formata o texto do tooltip com dados de improdutividade."""
-    if pd.isna(row.get('taxa_improdutividade_%_media')):
+    if pd.isna(row.get('taxa_improdutividade_media')):
         return ""
     
     texto = "<br>---<br><b>Improdutividade Histórica:</b><br>"
-    texto += f" • Taxa Média: {row['taxa_improdutividade_%_media']:.1f}%<br>"
+    texto += f" • Taxa Média: {row['taxa_improdutividade_media']:.1f}%<br>"
     texto += f" • Total de Serviços: {int(row['total_servicos_sum'])}<br>"
     texto += f" • Período: {row['menor_data_min']} a {row['maior_data_max']}<br>"
     
@@ -548,7 +547,7 @@ if uploaded_file is not None:
             tab_index += 1
 
             with tabs[tab_index]: # Contorno dos Clusters
-                with st.spinner('Desenhando contornos dos clusters...'):
+                with st.spinner('Desenhando contornos dos clusters e analisando improdutividade...'):
                     st.subheader("Contorno Geográfico dos Clusters (Hotspots)")
                     st.write("Este mapa desenha um polígono ao redor de cada hotspot da categoria 'Agrupado'.")
                     gdf_clusters_reais = gdf_filtrado_base[(gdf_filtrado_base['classificacao'] == 'Agrupado') & (gdf_filtrado_base['cluster'] != -1)]
@@ -556,65 +555,64 @@ if uploaded_file is not None:
                         map_center_hull = [gdf_clusters_reais.latitude.mean(), gdf_clusters_reais.longitude.mean()]
                         m_hull = folium.Map(location=map_center_hull, zoom_start=11)
                         desenhar_camadas_kml(m_hull, geometrias_kml_dict, kml_laranja_dict)
-                        try:
-                            # Adicionar camada de improdutividade
-                            if gdf_improdutividade is not None:
-                                folium.Choropleth(
-                                    geo_data=gdf_improdutividade,
-                                    name='Improdutividade Histórica',
-                                    data=gdf_improdutividade,
-                                    columns=['h3_index', 'taxa_improdutividade_%'],
-                                    key_on='feature.properties.h3_index',
-                                    fill_color='YlOrRd',
-                                    fill_opacity=0.6,
-                                    line_opacity=0.2,
-                                    legend_name='Taxa de Improdutividade Histórica (%)',
-                                    highlight=True
-                                ).add_to(m_hull)
+                        
+                        if gdf_improdutividade is not None:
+                            folium.Choropleth(
+                                geo_data=gdf_improdutividade, name='Improdutividade Histórica', data=gdf_improdutividade,
+                                columns=['h3_index', 'taxa_improdutividade_%'], key_on='feature.properties.h3_index',
+                                fill_color='YlOrRd', fill_opacity=0.6, line_opacity=0.2,
+                                legend_name='Taxa de Improdutividade Histórica (%)', highlight=True
+                            ).add_to(m_hull)
 
+                        try:
                             hulls = gdf_clusters_reais.dissolve(by='cluster').convex_hull
                             gdf_hulls = gpd.GeoDataFrame(geometry=hulls).reset_index()
                             
                             counts = gdf_clusters_reais.groupby('cluster').size().rename('contagem')
                             gdf_hulls = gdf_hulls.merge(counts, on='cluster')
-                            gdf_hulls_proj = gdf_hulls.to_crs("EPSG:3857")
-                            gdf_hulls['area_km2'] = (gdf_hulls_proj.geometry.area / 1_000_000).round(2)
+                            gdf_hulls['area_km2'] = (gdf_hulls.to_crs("EPSG:3857").geometry.area / 1_000_000).round(2)
                             gdf_hulls['densidade'] = (gdf_hulls['contagem'] / gdf_hulls['area_km2']).replace([np.inf, -np.inf], 0).round(2)
 
-                            # Análise de Improdutividade por Cluster
                             if gdf_improdutividade is not None:
-                                intersecting_hexagons = gpd.sjoin(gdf_hulls, gdf_improdutividade, how="inner", predicate="intersects")
-                                aggregated_stats = intersecting_hexagons.groupby('cluster').agg(
-                                    taxa_improdutividade_%_media=('taxa_improdutividade_%', 'mean'),
+                                intersecting = gpd.sjoin(gdf_hulls, gdf_improdutividade, how="inner", predicate="intersects")
+                                
+                                def weighted_avg(group, avg_name, weight_name):
+                                    d = group[avg_name]
+                                    w = group[weight_name]
+                                    return (d * w).sum() / w.sum()
+
+                                def aggregate_motives(group):
+                                    counter = Counter()
+                                    for idx, row in group.iterrows():
+                                        num_improdutivos_hex = row['total_improdutivos']
+                                        for motivo_info in row['top_motivos']:
+                                            count = round(num_improdutivos_hex * (motivo_info['rep_%'] / 100))
+                                            counter[motivo_info['motivo']] += count
+                                    total_improdutivos_agg = sum(counter.values())
+                                    top_5 = counter.most_common(5)
+                                    return [{'motivo': m, 'rep_%': (c / total_improdutivos_agg * 100) if total_improdutivos_agg > 0 else 0} for m, c in top_5]
+
+                                aggregated_stats = intersecting.groupby('cluster').agg(
                                     total_servicos_sum=('total_servicos', 'sum'),
                                     menor_data_min=('menor_data', 'min'),
-                                    maior_data_max=('maior_data', 'max'),
-                                    top_motivos_list=('top_motivos', 'sum')
+                                    maior_data_max=('maior_data', 'max')
                                 )
-                                
-                                def aggregate_top_motives(motives_list):
-                                    flat_list = [tuple(d.items()) for sublist in motives_list for d in sublist]
-                                    counts = Counter(item['motivo'] for sublist in motives_list for item in sublist)
-                                    total_improdutivos = sum(counts.values())
-                                    top_5 = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:5]
-                                    return [{'motivo': m, 'rep_%': (c / total_improdutivos * 100) if total_improdutivos > 0 else 0} for m, c in top_5]
-
-                                aggregated_stats['top_motivos_agregados'] = aggregated_stats['top_motivos_list'].apply(aggregate_top_motives)
+                                aggregated_stats['taxa_improdutividade_media'] = intersecting.groupby('cluster').apply(weighted_avg, 'taxa_improdutividade_%', 'total_servicos')
+                                aggregated_stats['top_motivos_agregados'] = intersecting.groupby('cluster').apply(aggregate_motives)
                                 gdf_hulls = gdf_hulls.merge(aggregated_stats, on='cluster', how='left')
-                            
-                            gdf_hulls['tooltip'] = gdf_hulls.apply(lambda row: f"<b>Cluster ID: {row['cluster']}</b><br>Nº de Cortes: {row['contagem']}<br>Área (km²): {row['area_km2']}<br>Cortes/km²: {row['densidade']}" + formatar_tooltip_improdutividade(row), axis=1)
 
+                            gdf_hulls['tooltip_html'] = gdf_hulls.apply(lambda row: f"<b>Cluster ID: {row['cluster']}</b><br>Nº de Cortes: {int(row['contagem'])}<br>Área (km²): {row['area_km2']}<br>Cortes/km²: {row['densidade']}" + formatar_tooltip_improdutividade(row), axis=1)
+                            
                             folium.GeoJson(
-                                gdf_hulls, 
-                                style_function=lambda x: {'color': 'blue', 'weight': 2.5, 'fillColor': 'blue', 'fillOpacity': 0.2}, 
-                                tooltip=folium.GeoJsonTooltip(fields=['tooltip'], aliases=[''], localize=True, sticky=True, style="white-space: pre-wrap;")
+                                gdf_hulls, style_function=lambda x: {'color': 'blue', 'weight': 2.5, 'fillColor': 'blue', 'fillOpacity': 0.2}, 
+                                tooltip=folium.features.GeoJsonTooltip(fields=['tooltip_html'], aliases=[''], labels=False, sticky=True, style="white-space: pre-wrap;")
                             ).add_to(m_hull)
                             st_folium(m_hull, use_container_width=True, height=700)
-                        except Exception as e: st.warning(f"Não foi possível desenhar os contornos. Erro: {e}")
+                        except Exception as e: st.warning(f"Não foi possível desenhar os contornos ou calcular a improdutividade. Erro: {e}")
                     else: st.warning("Nenhum cluster para desenhar.")
             tab_index += 1
 
-                     if df_metas is not None:
+                       if df_metas is not None:
                 with tabs[tab_index]: # Pacotes de Trabalho
                     cos_simulados = gdf_alocados_final['centro_operativo'].unique() if not gdf_alocados_final.empty else []
                     metas_filtradas = df_metas[df_metas['centro_operativo'].isin(cos_simulados)]
