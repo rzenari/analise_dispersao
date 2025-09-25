@@ -42,10 +42,8 @@ def carregar_malha_improdutividade(caminho_arquivo='improdutividade_historica.ge
         return None
     try:
         gdf = gpd.read_file(caminho_arquivo)
-        # Garante que as colunas de data sejam datetime
         gdf['menor_data'] = pd.to_datetime(gdf['menor_data'], errors='coerce')
         gdf['maior_data'] = pd.to_datetime(gdf['maior_data'], errors='coerce')
-        # Converte a string de top_motivos para um objeto python
         gdf['top_motivos'] = gdf['top_motivos'].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else [])
         st.sidebar.info("Malha histórica de improdutividade carregada.")
         return gdf
@@ -634,7 +632,6 @@ if uploaded_file is not None:
                             if gdf_improd is not None:
                                 gdf_hulls_com_improd = gpd.sjoin(gdf_hulls, gdf_improd, how="left", predicate="intersects")
                                 
-                                # --- INÍCIO DA CORREÇÃO ---
                                 def aggregate_improd(df_group):
                                     if df_group['total_servicos'].isnull().all():
                                         return pd.Series({'taxa_improdutividade_media': np.nan, 'total_servicos_hist': 0, 'menor_data_hist': pd.NaT, 'maior_data_hist': pd.NaT, 'top_5_motivos_agregados': []})
@@ -653,16 +650,12 @@ if uploaded_file is not None:
                                             if motivo and isinstance(perc, (int, float)):
                                                 motivos_agg[motivo] += perc
                                     
-                                    # Recalcula a representatividade com base no total de serviços da área
-                                    total_improdutivos_na_area = df_group['total_improdutivos'].sum()
+                                    total_motivos_ponderado = sum(motivos_agg.values())
                                     motivos_recalculados = {}
-                                    if total_improdutivos_na_area > 0:
-                                        # Simulação de contagem de motivos para recalcular percentual
-                                        total_motivos_ponderado = sum(motivos_agg.values())
-                                        if total_motivos_ponderado > 0:
-                                            for motivo, valor_somado in motivos_agg.items():
-                                                motivos_recalculados[motivo] = (valor_somado / total_motivos_ponderado) * 100
-
+                                    if total_motivos_ponderado > 0:
+                                        for motivo, valor_somado in motivos_agg.items():
+                                            motivos_recalculados[motivo] = (valor_somado / total_motivos_ponderado) * 100
+                                    
                                     top_5 = sorted(motivos_recalculados.items(), key=lambda item: item[1], reverse=True)[:5]
                                     
                                     return pd.Series({
@@ -672,8 +665,7 @@ if uploaded_file is not None:
                                         'maior_data_hist': df_group['maior_data'].max(),
                                         'top_5_motivos_agregados': top_5
                                     })
-                                # --- FIM DA CORREÇÃO ---
-
+                                
                                 resumo_improd = gdf_hulls_com_improd.groupby('cluster').apply(aggregate_improd)
                                 gdf_hulls = gdf_hulls.merge(resumo_improd, on='cluster', how='left')
                                 gdf_hulls['tooltip_html'] = gdf_hulls.apply(gerar_tooltip_html, axis=1)
@@ -684,11 +676,16 @@ if uploaded_file is not None:
                                     border-radius: 3px;
                                     box-shadow: 3px;
                                 """)
+                                
+                                # Remove colunas que não são serializáveis antes de passar para o Folium
+                                gdf_hulls_para_mapa = gdf_hulls.drop(columns=['top_5_motivos_agregados', 'menor_data_hist', 'maior_data_hist'], errors='ignore')
+
                             else:
+                                gdf_hulls_para_mapa = gdf_hulls
                                 tooltip_obj = folium.GeoJsonTooltip(fields=['contagem', 'area_km2', 'densidade'], aliases=['Nº de Cortes:', 'Área (km²):', 'Cortes/km²:'], localize=True, sticky=True)
 
                             folium.GeoJson(
-                                gdf_hulls, 
+                                gdf_hulls_para_mapa, 
                                 style_function=lambda x: {'color': 'blue', 'weight': 2.5, 'fillColor': 'blue', 'fillOpacity': 0.15}, 
                                 tooltip=tooltip_obj
                             ).add_to(m_hull)
@@ -751,10 +748,17 @@ if uploaded_file is not None:
                                     border-radius: 3px;
                                     box-shadow: 3px;
                                 """)
+
+                                # --- INÍCIO DA CORREÇÃO ---
+                                # Remove colunas que não são serializáveis antes de passar para o Folium
+                                gdf_hulls_pacotes_para_mapa = gdf_hulls_pacotes.drop(columns=['top_5_motivos_agregados', 'menor_data_hist', 'maior_data_hist'], errors='ignore')
+                                # --- FIM DA CORREÇÃO ---
+
                             else:
+                                gdf_hulls_pacotes_para_mapa = gdf_hulls_pacotes
                                 tooltip_pacotes = folium.GeoJsonTooltip(fields=['centro_operativo', 'pacote_id', 'contagem', 'area_km2'], aliases=['CO:', 'Pacote:', 'Nº de Serviços:', 'Área (km²):'], localize=True, sticky=True)
 
-                            folium.GeoJson(gdf_hulls_pacotes, style_function=lambda feature: {'color': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'weight': 2.5, 'fillColor': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'fillOpacity': 0.25}, tooltip=tooltip_pacotes).add_to(m_pacotes)
+                            folium.GeoJson(gdf_hulls_pacotes_para_mapa, style_function=lambda feature: {'color': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'weight': 2.5, 'fillColor': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'fillOpacity': 0.25}, tooltip=tooltip_pacotes).add_to(m_pacotes)
                             for _, row in gdf_alocados_final.iterrows(): folium.CircleMarker(location=[row['latitude'], row['longitude']], radius=3, color=cores_co.get(row['centro_operativo'], 'gray'), fill=True, fill_opacity=1, popup=f"Pacote: {row['pacote_id']}").add_to(m_pacotes)
                             st_folium(m_pacotes, use_container_width=True, height=700)
                     else: st.info("Nenhum pacote de trabalho foi gerado para simular.")
