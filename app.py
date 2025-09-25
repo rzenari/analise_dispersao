@@ -350,22 +350,18 @@ def desenhar_camada_improdutividade(map_object, gdf_improd):
     if gdf_improd is None or gdf_improd.empty:
         return
     
-    # Cria uma cópia para evitar modificar o dataframe original
     gdf_for_map = gdf_improd.copy()
 
-    # Converte colunas de Timestamp para string, pois não são serializáveis para JSON
     if 'menor_data' in gdf_for_map.columns:
         gdf_for_map['menor_data'] = gdf_for_map['menor_data'].dt.strftime('%d/%m/%Y')
     if 'maior_data' in gdf_for_map.columns:
         gdf_for_map['maior_data'] = gdf_for_map['maior_data'].dt.strftime('%d/%m/%Y')
 
-    # Define a escala de cores de verde (0%) para vermelho (100%)
     colormap = linear.YlOrRd_09.scale(0, 100)
     colormap.caption = 'Taxa de Improdutividade Histórica (%)'
     
-    # Adiciona a camada de hexágonos coloridos
     folium.GeoJson(
-        gdf_for_map, # Usa a cópia com as datas formatadas como texto
+        gdf_for_map,
         style_function=lambda feature: {
             'fillColor': colormap(feature['properties']['taxa_improdutividade_%']),
             'color': 'black',
@@ -379,7 +375,6 @@ def desenhar_camada_improdutividade(map_object, gdf_improd):
         )
     ).add_to(map_object)
     
-    # Adiciona a legenda de cores ao mapa
     map_object.add_child(colormap)
 
 def gerar_tooltip_html(row):
@@ -426,7 +421,6 @@ st.sidebar.header("Controles")
 uploaded_file = st.sidebar.file_uploader("1. Escolha a planilha de cortes", type=["csv", "xlsx", "xls"])
 metas_file = st.sidebar.file_uploader("2. Escolha a planilha de metas (Opcional)", type=["xlsx", "xls"])
 
-# Carrega a malha de improdutividade uma vez
 gdf_improd = carregar_malha_improdutividade()
 
 if uploaded_file is not None:
@@ -638,20 +632,9 @@ if uploaded_file is not None:
                             gdf_hulls['densidade'] = (gdf_hulls['contagem'] / gdf_hulls['area_km2']).replace([np.inf, -np.inf], 0).round(2)
                             
                             if gdf_improd is not None:
-                                # --- INÍCIO DO BLOCO DE CORREÇÃO E DEBUG ---
-                                # 1. Garante que ambos os GDFs estejam no mesmo CRS de forma explícita
-                                gdf_hulls_proj = gdf_hulls.to_crs("EPSG:4326")
-                                gdf_improd_proj = gdf_improd.to_crs("EPSG:4326")
-
-                                # 2. Remove geometrias inválidas ou vazias
-                                gdf_hulls_valid = gdf_hulls_proj[gdf_hulls_proj.is_valid & ~gdf_hulls_proj.is_empty]
-                                gdf_improd_valid = gdf_improd_proj[gdf_improd_proj.is_valid & ~gdf_improd_proj.is_empty]
-
-                                # 3. Realiza a junção espacial com os dados validados
-                                gdf_hulls_com_improd = gpd.sjoin(gdf_hulls_valid, gdf_improd_valid, how="left", predicate="intersects")
-                                # --- FIM DO BLOCO DE CORREÇÃO E DEBUG ---
+                                gdf_hulls_com_improd = gpd.sjoin(gdf_hulls, gdf_improd, how="left", predicate="intersects")
                                 
-                                # Agregação dos dados históricos para cada cluster
+                                # --- INÍCIO DA CORREÇÃO ---
                                 def aggregate_improd(df_group):
                                     if df_group['total_servicos'].isnull().all():
                                         return pd.Series({'taxa_improdutividade_media': np.nan, 'total_servicos_hist': 0, 'menor_data_hist': pd.NaT, 'maior_data_hist': pd.NaT, 'top_5_motivos_agregados': []})
@@ -664,10 +647,23 @@ if uploaded_file is not None:
                                         
                                     motivos_agg = defaultdict(float)
                                     for lista_motivos in df_group['top_motivos'].dropna():
-                                        for motivo, perc in lista_motivos:
-                                            motivos_agg[motivo] += perc
+                                        for item_dict in lista_motivos:
+                                            motivo = item_dict.get('motivo')
+                                            perc = item_dict.get('rep_%')
+                                            if motivo and isinstance(perc, (int, float)):
+                                                motivos_agg[motivo] += perc
                                     
-                                    top_5 = sorted(motivos_agg.items(), key=lambda item: item[1], reverse=True)[:5]
+                                    # Recalcula a representatividade com base no total de serviços da área
+                                    total_improdutivos_na_area = df_group['total_improdutivos'].sum()
+                                    motivos_recalculados = {}
+                                    if total_improdutivos_na_area > 0:
+                                        # Simulação de contagem de motivos para recalcular percentual
+                                        total_motivos_ponderado = sum(motivos_agg.values())
+                                        if total_motivos_ponderado > 0:
+                                            for motivo, valor_somado in motivos_agg.items():
+                                                motivos_recalculados[motivo] = (valor_somado / total_motivos_ponderado) * 100
+
+                                    top_5 = sorted(motivos_recalculados.items(), key=lambda item: item[1], reverse=True)[:5]
                                     
                                     return pd.Series({
                                         'taxa_improdutividade_media': improd_ponderada,
@@ -676,7 +672,8 @@ if uploaded_file is not None:
                                         'maior_data_hist': df_group['maior_data'].max(),
                                         'top_5_motivos_agregados': top_5
                                     })
-                                
+                                # --- FIM DA CORREÇÃO ---
+
                                 resumo_improd = gdf_hulls_com_improd.groupby('cluster').apply(aggregate_improd)
                                 gdf_hulls = gdf_hulls.merge(resumo_improd, on='cluster', how='left')
                                 gdf_hulls['tooltip_html'] = gdf_hulls.apply(gerar_tooltip_html, axis=1)
@@ -742,19 +739,8 @@ if uploaded_file is not None:
                             gdf_hulls_pacotes['area_km2'] = (gdf_hulls_pacotes.to_crs("EPSG:3857").geometry.area / 1_000_000).round(2)
                             
                             if gdf_improd is not None:
-                                # --- INÍCIO DO BLOCO DE CORREÇÃO E DEBUG ---
-                                # 1. Garante que ambos os GDFs estejam no mesmo CRS de forma explícita
-                                gdf_hulls_pacotes_proj = gdf_hulls_pacotes.to_crs("EPSG:4326")
-                                gdf_improd_proj = gdf_improd.to_crs("EPSG:4326")
-
-                                # 2. Remove geometrias inválidas ou vazias
-                                gdf_hulls_pacotes_valid = gdf_hulls_pacotes_proj[gdf_hulls_pacotes_proj.is_valid & ~gdf_hulls_pacotes_proj.is_empty]
-                                gdf_improd_valid = gdf_improd_proj[gdf_improd_proj.is_valid & ~gdf_improd_proj.is_empty]
+                                gdf_pacotes_com_improd = gpd.sjoin(gdf_hulls_pacotes, gdf_improd, how="left", predicate="intersects")
                                 
-                                # 3. Realiza a junção espacial com os dados validados
-                                gdf_pacotes_com_improd = gpd.sjoin(gdf_hulls_pacotes_valid, gdf_improd_valid, how="left", predicate="intersects")
-                                # --- FIM DO BLOCO DE CORREÇÃO E DEBUG ---
-
                                 resumo_improd_pacotes = gdf_pacotes_com_improd.groupby(['centro_operativo', 'pacote_id']).apply(aggregate_improd)
                                 gdf_hulls_pacotes = gdf_hulls_pacotes.merge(resumo_improd_pacotes, on=['centro_operativo', 'pacote_id'], how='left')
                                 gdf_hulls_pacotes['tooltip_html'] = gdf_hulls_pacotes.apply(gerar_tooltip_html, axis=1)
