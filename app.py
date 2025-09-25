@@ -639,6 +639,11 @@ if uploaded_file is not None:
                             
                             # Análise de Improdutividade
                             if gdf_improd is not None:
+
+                                # ADICIONE AS DUAS LINHAS ABAIXO PARA DIAGNÓSTICO
+                                st.write("CRS dos Polígonos dos Clusters:", gdf_hulls.crs)
+                                st.write("CRS da Malha de Improdutividade:", gdf_improd.crs)
+                                
                                 # >>> INÍCIO DA CORREÇÃO <<<
                                 gdf_improd_renamed = gdf_improd.rename(columns={'geometry': 'geom_improd'}).set_geometry('geom_improd')
                                 gdf_hulls_com_improd = gpd.sjoin(gdf_hulls, gdf_improd_renamed, how="left", predicate="intersects")
@@ -827,3 +832,4 @@ if uploaded_file is not None:
                 """)
         else: st.warning("Nenhum dado para exibir com os filtros atuais.")
 else: st.info("Aguardando o upload de um arquivo para iniciar a análise.")
+
