@@ -16,9 +16,11 @@ import glob
 import zipfile
 import requests
 from datetime import datetime
+import json
+from collections import Counter
 
 # ==============================================================================
-# 2. CONFIGURAÇÃO DA PÁGINA E TÍTulos
+# 2. CONFIGURAÇÃO DA PÁGINA E TÍTULOS
 # ==============================================================================
 st.set_page_config(layout="wide", page_title="Análise de Dispersão Geográfica")
 
@@ -28,6 +30,16 @@ st.write("Faça o upload da sua planilha de cortes para analisar a distribuiçã
 # ==============================================================================
 # 3. FUNÇÕES DE ANÁLISE
 # ==============================================================================
+
+@st.cache_data
+def carregar_malha_improdutividade(filepath='improdutividade_historica.geojson'):
+    """Carrega o arquivo GeoJSON pré-processado com a malha de improdutividade."""
+    try:
+        gdf = gpd.read_file(filepath)
+        gdf['top_motivos'] = gdf['top_motivos'].apply(json.loads)
+        return gdf
+    except Exception:
+        return None
 
 @st.cache_data
 def carregar_kmls(pasta_projeto):
@@ -97,8 +109,8 @@ def carregar_dados_completos(arquivo_enviado):
         if 'latitude' not in df.columns or 'longitude' not in df.columns:
             st.error("ERRO: Colunas 'latitude' e/ou 'longitude' não foram encontradas."); st.write("Colunas encontradas:", df.columns.tolist())
             return None
-        df['latitude'] = df['latitude'].astype(str).str.replace(',', '.').astype(float)
-        df['longitude'] = df['longitude'].astype(str).str.replace(',', '.').astype(float)
+        df['latitude'] = pd.to_numeric(df['latitude'].astype(str).str.replace(',', '.'), errors='coerce')
+        df['longitude'] = pd.to_numeric(df['longitude'].astype(str).str.replace(',', '.'), errors='coerce')
         df = df.dropna(subset=['latitude', 'longitude'])
         return df
 
@@ -236,7 +248,7 @@ def df_to_excel(df):
         df.to_excel(writer, index=False, sheet_name='Dados')
     return output.getvalue()
 
-@st.cache_data(ttl=600) # Cache de 10 minutos para o tempo atual
+@st.cache_data(ttl=600)
 def get_current_weather(lat, lon, api_key):
     """Busca o tempo atual da API."""
     URL = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={api_key}&units=metric&lang=pt_br"
@@ -320,6 +332,24 @@ def desenhar_camadas_kml(map_object, risco_dict, laranja_dict):
         for nome, poligono in laranja_dict.items():
             if poligono and not poligono.is_empty:
                 folium.GeoJson(poligono, style_function=lambda x: {'fillColor': 'orange', 'color': 'orange', 'weight': 2, 'fillOpacity': 0.2}, tooltip=f"Área Laranja: {nome}").add_to(map_object)
+
+def formatar_tooltip_improdutividade(row, prefix=""):
+    """Formata o texto do tooltip com dados de improdutividade."""
+    if pd.isna(row.get('taxa_improdutividade_%_media')):
+        return ""
+    
+    texto = "<br>---<br><b>Improdutividade Histórica:</b><br>"
+    texto += f" • Taxa Média: {row['taxa_improdutividade_%_media']:.1f}%<br>"
+    texto += f" • Total de Serviços: {int(row['total_servicos_sum'])}<br>"
+    texto += f" • Período: {row['menor_data_min']} a {row['maior_data_max']}<br>"
+    
+    motivos_agregados = row.get('top_motivos_agregados')
+    if motivos_agregados and isinstance(motivos_agregados, list) and len(motivos_agregados) > 0:
+        texto += "<b>Principais Motivos:</b><br>"
+        for i, motivo in enumerate(motivos_agregados):
+            texto += f" {i+1}. {motivo['motivo']} ({motivo['rep_%']:.1f}%)<br>"
+            
+    return texto.replace('"',"'")
         
 # ==============================================================================
 # 4. LÓGICA PRINCIPAL DA APLICAÇÃO
@@ -327,6 +357,10 @@ def desenhar_camadas_kml(map_object, risco_dict, laranja_dict):
 st.sidebar.header("Controles")
 uploaded_file = st.sidebar.file_uploader("1. Escolha a planilha de cortes", type=["csv", "xlsx", "xls"])
 metas_file = st.sidebar.file_uploader("2. Escolha a planilha de metas (Opcional)", type=["xlsx", "xls"])
+
+gdf_improdutividade = carregar_malha_improdutividade()
+if gdf_improdutividade is None:
+    st.sidebar.warning("Arquivo 'improdutividade_historica.geojson' não encontrado. A camada de improdutividade não será exibida.")
 
 if uploaded_file is not None:
     df_completo_original = carregar_dados_completos(uploaded_file)
@@ -435,10 +469,8 @@ if uploaded_file is not None:
             gdf_servicos_restantes = gdf_filtrado_base[gdf_filtrado_base['classificacao'] != 'Agrupado'].copy()
             if not gdf_servicos_restantes.empty: todos_excedentes.append(gdf_servicos_restantes)
             
-            if todos_alocados:
-                gdf_alocados_final = gpd.GeoDataFrame(pd.concat(todos_alocados, ignore_index=True), crs="EPSG:4326")
-            if todos_excedentes:
-                gdf_excedentes_final = gpd.GeoDataFrame(pd.concat(todos_excedentes, ignore_index=True), crs="EPSG:4326")
+            if todos_alocados: gdf_alocados_final = gpd.GeoDataFrame(pd.concat(todos_alocados, ignore_index=True), crs="EPSG:4326")
+            if todos_excedentes: gdf_excedentes_final = gpd.GeoDataFrame(pd.concat(todos_excedentes, ignore_index=True), crs="EPSG:4326")
 
         st.header("Resultados da Análise")
         
@@ -467,7 +499,7 @@ if uploaded_file is not None:
             
             tab_index = 0
 
-            with tabs[tab_index]: # Análise Geográfica
+                       with tabs[tab_index]: # Análise Geográfica
                 with st.spinner('Carregando análise e mapa...'):
                     st.subheader("Resumo da Análise de Classificação")
                     total_servicos, n_agrupados, n_dispersos, n_risco, n_laranja = len(gdf_filtrado_base), len(gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Agrupado']), len(gdf_filtrado_base[gdf_filtrado_base['classificacao'] == 'Disperso']), len(gdf_risco), len(gdf_laranja)
@@ -484,7 +516,7 @@ if uploaded_file is not None:
                         st_folium(m, use_container_width=True, height=700)
                     else: st.warning("Nenhum serviço para exibir no mapa com os filtros atuais.")
             tab_index += 1
-
+ 
             with tabs[tab_index]: # Resumo por CO
                 with st.spinner('Gerando tabela de resumo...'):
                     st.subheader("Resumo por Centro Operativo")
@@ -513,7 +545,7 @@ if uploaded_file is not None:
                         resumo_co = resumo_co[cols_existentes].fillna(0)
                     st.dataframe(resumo_co, use_container_width=True)
             tab_index += 1
-
+ 
             with tabs[tab_index]: # Contorno dos Clusters
                 with st.spinner('Desenhando contornos dos clusters...'):
                     st.subheader("Contorno Geográfico dos Clusters (Hotspots)")
@@ -532,7 +564,7 @@ if uploaded_file is not None:
                             gdf_hulls_proj = gdf_hulls.to_crs("EPSG:3857")
                             gdf_hulls['area_km2'] = (gdf_hulls_proj.geometry.area / 1_000_000).round(2)
                             gdf_hulls['densidade'] = (gdf_hulls['contagem'] / gdf_hulls['area_km2']).replace([np.inf, -np.inf], 0).round(2)
-
+ 
                             folium.GeoJson(
                                 gdf_hulls, 
                                 style_function=lambda x: {'color': 'blue', 'weight': 2.5, 'fillColor': 'blue', 'fillOpacity': 0.2}, 
@@ -546,7 +578,7 @@ if uploaded_file is not None:
                         except Exception as e: st.warning(f"Não foi possível desenhar os contornos. Erro: {e}")
                     else: st.warning("Nenhum cluster para desenhar.")
             tab_index += 1
-
+ 
             if df_metas is not None:
                 with tabs[tab_index]: # Pacotes de Trabalho
                     cos_simulados = gdf_alocados_final['centro_operativo'].unique() if not gdf_alocados_final.empty else []
@@ -631,7 +663,7 @@ if uploaded_file is not None:
                                     st.markdown("<hr>", unsafe_allow_html=True)
                             else: st.warning(f"Não foi possível obter a previsão. Erro: {forecast_data}")
             tab_index += 1
-
+ 
             with tabs[tab_index]: # Metodologia
                 st.subheader("As Metodologias por Trás da Análise")
                 st.markdown("""
