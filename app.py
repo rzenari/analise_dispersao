@@ -353,13 +353,11 @@ def desenhar_camada_improdutividade(map_object, gdf_improd):
     # Cria uma cópia para evitar modificar o dataframe original
     gdf_for_map = gdf_improd.copy()
 
-    # >>> INÍCIO DA CORREÇÃO <<<
     # Converte colunas de Timestamp para string, pois não são serializáveis para JSON
     if 'menor_data' in gdf_for_map.columns:
         gdf_for_map['menor_data'] = gdf_for_map['menor_data'].dt.strftime('%d/%m/%Y')
     if 'maior_data' in gdf_for_map.columns:
         gdf_for_map['maior_data'] = gdf_for_map['maior_data'].dt.strftime('%d/%m/%Y')
-    # >>> FIM DA CORREÇÃO <<<
 
     # Define a escala de cores de verde (0%) para vermelho (100%)
     colormap = linear.YlOrRd_09.scale(0, 100)
@@ -641,9 +639,11 @@ if uploaded_file is not None:
                             
                             # Análise de Improdutividade
                             if gdf_improd is not None:
-                                gdf_hulls_com_improd = gpd.sjoin(gdf_hulls, gdf_improd.rename(columns={'geometry': 'geom_improd'}), how="left", predicate="intersects")
-                                gdf_hulls_com_improd.drop(columns=['geom_improd'], inplace=True, errors='ignore')
-                                
+                                # >>> INÍCIO DA CORREÇÃO <<<
+                                gdf_improd_renamed = gdf_improd.rename(columns={'geometry': 'geom_improd'}).set_geometry('geom_improd')
+                                gdf_hulls_com_improd = gpd.sjoin(gdf_hulls, gdf_improd_renamed, how="left", predicate="intersects")
+                                # >>> FIM DA CORREÇÃO <<<
+
                                 # Agregação dos dados históricos para cada cluster
                                 def aggregate_improd(df_group):
                                     if df_group['total_servicos'].isnull().all():
@@ -737,7 +737,11 @@ if uploaded_file is not None:
                             gdf_hulls_pacotes['area_km2'] = (gdf_hulls_pacotes.to_crs("EPSG:3857").geometry.area / 1_000_000).round(2)
                             
                             if gdf_improd is not None:
-                                gdf_pacotes_com_improd = gpd.sjoin(gdf_hulls_pacotes, gdf_improd.rename(columns={'geometry': 'geom_improd'}), how="left", predicate="intersects")
+                                # >>> INÍCIO DA CORREÇÃO <<<
+                                gdf_improd_renamed_pacotes = gdf_improd.rename(columns={'geometry': 'geom_improd'}).set_geometry('geom_improd')
+                                gdf_pacotes_com_improd = gpd.sjoin(gdf_hulls_pacotes, gdf_improd_renamed_pacotes, how="left", predicate="intersects")
+                                # >>> FIM DA CORREÇÃO <<<
+
                                 resumo_improd_pacotes = gdf_pacotes_com_improd.groupby(['centro_operativo', 'pacote_id']).apply(aggregate_improd)
                                 gdf_hulls_pacotes = gdf_hulls_pacotes.merge(resumo_improd_pacotes, on=['centro_operativo', 'pacote_id'], how='left')
                                 gdf_hulls_pacotes['tooltip_html'] = gdf_hulls_pacotes.apply(gerar_tooltip_html, axis=1)
