@@ -637,18 +637,20 @@ if uploaded_file is not None:
                             gdf_hulls['area_km2'] = (gdf_hulls_proj.geometry.area / 1_000_000).round(2)
                             gdf_hulls['densidade'] = (gdf_hulls['contagem'] / gdf_hulls['area_km2']).replace([np.inf, -np.inf], 0).round(2)
                             
-                            # Análise de Improdutividade
                             if gdf_improd is not None:
+                                # --- INÍCIO DO BLOCO DE CORREÇÃO E DEBUG ---
+                                # 1. Garante que ambos os GDFs estejam no mesmo CRS de forma explícita
+                                gdf_hulls_proj = gdf_hulls.to_crs("EPSG:4326")
+                                gdf_improd_proj = gdf_improd.to_crs("EPSG:4326")
 
-                                # ADICIONE AS DUAS LINHAS ABAIXO PARA DIAGNÓSTICO
-                                st.write("CRS dos Polígonos dos Clusters:", gdf_hulls.crs)
-                                st.write("CRS da Malha de Improdutividade:", gdf_improd.crs)
+                                # 2. Remove geometrias inválidas ou vazias
+                                gdf_hulls_valid = gdf_hulls_proj[gdf_hulls_proj.is_valid & ~gdf_hulls_proj.is_empty]
+                                gdf_improd_valid = gdf_improd_proj[gdf_improd_proj.is_valid & ~gdf_improd_proj.is_empty]
+
+                                # 3. Realiza a junção espacial com os dados validados
+                                gdf_hulls_com_improd = gpd.sjoin(gdf_hulls_valid, gdf_improd_valid, how="left", predicate="intersects")
+                                # --- FIM DO BLOCO DE CORREÇÃO E DEBUG ---
                                 
-                                # >>> INÍCIO DA CORREÇÃO <<<
-                                gdf_improd_renamed = gdf_improd.rename(columns={'geometry': 'geom_improd'}).set_geometry('geom_improd')
-                                gdf_hulls_com_improd = gpd.sjoin(gdf_hulls, gdf_improd_renamed, how="left", predicate="intersects")
-                                # >>> FIM DA CORREÇÃO <<<
-
                                 # Agregação dos dados históricos para cada cluster
                                 def aggregate_improd(df_group):
                                     if df_group['total_servicos'].isnull().all():
@@ -660,7 +662,6 @@ if uploaded_file is not None:
                                     else:
                                         improd_ponderada = 0
                                         
-                                    # Agregar motivos
                                     motivos_agg = defaultdict(float)
                                     for lista_motivos in df_group['top_motivos'].dropna():
                                         for motivo, perc in lista_motivos:
@@ -727,7 +728,6 @@ if uploaded_file is not None:
                                     st.markdown("##### Desempenho"); st.metric("Aderência à Meta", f"{aderencia_meta:.1f}%"); st.metric("Ocupação das Equipes", f"{ocupacao_equipes:.1f}%")
                                 st.markdown("---")
                             
-                            # Mapa de Pacotes
                             map_center_pacotes = [gdf_filtrado_base.latitude.mean(), gdf_filtrado_base.longitude.mean()]
                             m_pacotes = folium.Map(location=map_center_pacotes, zoom_start=10)
                             
@@ -742,10 +742,18 @@ if uploaded_file is not None:
                             gdf_hulls_pacotes['area_km2'] = (gdf_hulls_pacotes.to_crs("EPSG:3857").geometry.area / 1_000_000).round(2)
                             
                             if gdf_improd is not None:
-                                # >>> INÍCIO DA CORREÇÃO <<<
-                                gdf_improd_renamed_pacotes = gdf_improd.rename(columns={'geometry': 'geom_improd'}).set_geometry('geom_improd')
-                                gdf_pacotes_com_improd = gpd.sjoin(gdf_hulls_pacotes, gdf_improd_renamed_pacotes, how="left", predicate="intersects")
-                                # >>> FIM DA CORREÇÃO <<<
+                                # --- INÍCIO DO BLOCO DE CORREÇÃO E DEBUG ---
+                                # 1. Garante que ambos os GDFs estejam no mesmo CRS de forma explícita
+                                gdf_hulls_pacotes_proj = gdf_hulls_pacotes.to_crs("EPSG:4326")
+                                gdf_improd_proj = gdf_improd.to_crs("EPSG:4326")
+
+                                # 2. Remove geometrias inválidas ou vazias
+                                gdf_hulls_pacotes_valid = gdf_hulls_pacotes_proj[gdf_hulls_pacotes_proj.is_valid & ~gdf_hulls_pacotes_proj.is_empty]
+                                gdf_improd_valid = gdf_improd_proj[gdf_improd_proj.is_valid & ~gdf_improd_proj.is_empty]
+                                
+                                # 3. Realiza a junção espacial com os dados validados
+                                gdf_pacotes_com_improd = gpd.sjoin(gdf_hulls_pacotes_valid, gdf_improd_valid, how="left", predicate="intersects")
+                                # --- FIM DO BLOCO DE CORREÇÃO E DEBUG ---
 
                                 resumo_improd_pacotes = gdf_pacotes_com_improd.groupby(['centro_operativo', 'pacote_id']).apply(aggregate_improd)
                                 gdf_hulls_pacotes = gdf_hulls_pacotes.merge(resumo_improd_pacotes, on=['centro_operativo', 'pacote_id'], how='left')
@@ -832,4 +840,3 @@ if uploaded_file is not None:
                 """)
         else: st.warning("Nenhum dado para exibir com os filtros atuais.")
 else: st.info("Aguardando o upload de um arquivo para iniciar a análise.")
-
