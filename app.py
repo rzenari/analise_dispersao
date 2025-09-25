@@ -382,43 +382,6 @@ def desenhar_camada_improdutividade(map_object, gdf_improd):
     # Adiciona a legenda de cores ao mapa
     map_object.add_child(colormap)
 
-def gerar_tooltip_html(row):
-    """Gera um HTML formatado para o tooltip com dados de improdutividade agregados."""
-    if pd.isna(row.get('taxa_improdutividade_media')):
-        return """
-            <div style="font-family: sans-serif;">
-                <strong>Dados de Improdutividade Histórica:</strong><br>
-                Não disponíveis para esta área.
-            </div>
-        """
-
-    improd_perc = row['taxa_improdutividade_media']
-    total_serv = int(row['total_servicos_hist'])
-    data_min = row['menor_data_hist'].strftime('%d/%m/%Y')
-    data_max = row['maior_data_hist'].strftime('%d/%m/%Y')
-    top_motivos = row['top_5_motivos_agregados']
-    
-    motivos_html = ""
-    if top_motivos:
-        for motivo, perc in top_motivos:
-            motivos_html += f"<li>{motivo.strip()}: {perc:.1f}%</li>"
-    else:
-        motivos_html = "<li>N/A</li>"
-        
-    html = f"""
-    <div style="font-family: sans-serif; max-width: 350px;">
-        <h4 style="margin-bottom: 5px; margin-top: 5px; border-bottom: 1px solid grey;">Análise Histórica da Área</h4>
-        <strong>Taxa de Improdutividade:</strong> {improd_perc:.1f}%<br>
-        <strong>Total de Serviços no Período:</strong> {total_serv}<br>
-        <strong>Período de Análise:</strong> {data_min} a {data_max}<br>
-        <strong style="margin-top: 5px; display: block;">Top 5 Motivos de Improdutividade:</strong>
-        <ul style="margin-top: 2px; padding-left: 20px;">
-            {motivos_html}
-        </ul>
-    </div>
-    """
-    return html
-
 # ==============================================================================
 # 4. LÓGICA PRINCIPAL DA APLICAÇÃO
 # ==============================================================================
@@ -560,7 +523,8 @@ if uploaded_file is not None:
             gdf_visualizacao = gdf_filtrado_base.copy()
             if tipo_visualizacao != "Todos": gdf_visualizacao = gdf_filtrado_base[gdf_filtrado_base['classificacao'] == tipo_visualizacao]
 
-            lista_abas = ["🗺️ Análise Geográfica", "📊 Resumo por CO", "📍 Contorno dos Clusters"]
+            # --- ALTERAÇÃO: ADICIONANDO A NOVA ABA NA LISTA ---
+            lista_abas = ["🗺️ Análise Geográfica", "🗺️ Mapa de Improdutividade", "📊 Resumo por CO", "📍 Contorno dos Clusters"]
             if df_metas is not None: lista_abas.append("📦 Pacotes de Trabalho")
             lista_abas.append("🌦️ Painel de Risco Climático")
             lista_abas.append("💡 Metodologia")
@@ -584,6 +548,24 @@ if uploaded_file is not None:
                         for _, row in gdf_visualizacao.iterrows(): folium.CircleMarker(location=[row['latitude'], row['longitude']], radius=5, color=cor_classificacao.get(row['classificacao'], 'black'), fill=True, fill_color=cor_classificacao.get(row['classificacao'], 'black'), fill_opacity=0.7, popup=f"Classificação: {row['classificacao']}").add_to(m)
                         st_folium(m, use_container_width=True, height=700)
                     else: st.warning("Nenhum serviço para exibir no mapa com os filtros atuais.")
+            tab_index += 1
+
+            # --- NOVA ABA DE MAPA DE IMPRODUTIVIDADE ---
+            with tabs[tab_index]:
+                st.subheader("Mapa de Calor da Improdutividade Histórica")
+                st.write("Esta visualização mostra a taxa de improdutividade histórica por região, com base nos dados pré-processados. Verde representa baixa improdutividade e vermelho, alta.")
+                if gdf_improd is not None and not gdf_improd.empty:
+                    with st.spinner("Gerando mapa de calor..."):
+                        # Centraliza o mapa na média das coordenadas da malha
+                        map_center_improd = [gdf_improd.geometry.centroid.y.mean(), gdf_improd.geometry.centroid.x.mean()]
+                        m_improd = folium.Map(location=map_center_improd, zoom_start=11)
+                        
+                        # Desenha a camada de improdutividade
+                        desenhar_camada_improdutividade(m_improd, gdf_improd)
+                        
+                        st_folium(m_improd, use_container_width=True, height=700)
+                else:
+                    st.warning("O arquivo 'improdutividade_historica.geojson' não foi encontrado ou está vazio. O mapa de calor não pode ser exibido.")
             tab_index += 1
 
             with tabs[tab_index]: # Resumo por CO
@@ -616,15 +598,14 @@ if uploaded_file is not None:
             tab_index += 1
 
             with tabs[tab_index]: # Contorno dos Clusters
-                with st.spinner('Desenhando contornos e analisando improdutividade...'):
-                    st.subheader("Contorno Geográfico dos Clusters com Análise Histórica")
-                    st.write("Este mapa desenha um polígono ao redor de cada hotspot, sobreposto à malha histórica de improdutividade.")
+                with st.spinner('Desenhando contornos dos clusters...'):
+                    st.subheader("Contorno Geográfico dos Clusters (Hotspots)")
+                    st.write("Este mapa desenha um polígono ao redor de cada hotspot da categoria 'Agrupado'.")
                     gdf_clusters_reais = gdf_filtrado_base[(gdf_filtrado_base['classificacao'] == 'Agrupado') & (gdf_filtrado_base['cluster'] != -1)]
                     if not gdf_clusters_reais.empty:
                         map_center_hull = [gdf_clusters_reais.latitude.mean(), gdf_clusters_reais.longitude.mean()]
                         m_hull = folium.Map(location=map_center_hull, zoom_start=11)
                         
-                        desenhar_camada_improdutividade(m_hull, gdf_improd)
                         desenhar_camadas_kml(m_hull, geometrias_kml_dict, kml_laranja_dict)
 
                         try:
@@ -637,58 +618,11 @@ if uploaded_file is not None:
                             gdf_hulls['area_km2'] = (gdf_hulls_proj.geometry.area / 1_000_000).round(2)
                             gdf_hulls['densidade'] = (gdf_hulls['contagem'] / gdf_hulls['area_km2']).replace([np.inf, -np.inf], 0).round(2)
                             
-                            if gdf_improd is not None:
-                                # --- INÍCIO DO BLOCO DE CORREÇÃO E DEBUG ---
-                                # 1. Garante que ambos os GDFs estejam no mesmo CRS de forma explícita
-                                gdf_hulls_proj = gdf_hulls.to_crs("EPSG:4326")
-                                gdf_improd_proj = gdf_improd.to_crs("EPSG:4326")
-
-                                # 2. Remove geometrias inválidas ou vazias
-                                gdf_hulls_valid = gdf_hulls_proj[gdf_hulls_proj.is_valid & ~gdf_hulls_proj.is_empty]
-                                gdf_improd_valid = gdf_improd_proj[gdf_improd_proj.is_valid & ~gdf_improd_proj.is_empty]
-
-                                # 3. Realiza a junção espacial com os dados validados
-                                gdf_hulls_com_improd = gpd.sjoin(gdf_hulls_valid, gdf_improd_valid, how="left", predicate="intersects")
-                                # --- FIM DO BLOCO DE CORREÇÃO E DEBUG ---
-                                
-                                # Agregação dos dados históricos para cada cluster
-                                def aggregate_improd(df_group):
-                                    if df_group['total_servicos'].isnull().all():
-                                        return pd.Series({'taxa_improdutividade_media': np.nan, 'total_servicos_hist': 0, 'menor_data_hist': pd.NaT, 'maior_data_hist': pd.NaT, 'top_5_motivos_agregados': []})
-
-                                    total_servicos_sum = df_group['total_servicos'].sum()
-                                    if total_servicos_sum > 0:
-                                        improd_ponderada = (df_group['taxa_improdutividade_%'] * df_group['total_servicos']).sum() / total_servicos_sum
-                                    else:
-                                        improd_ponderada = 0
-                                        
-                                    motivos_agg = defaultdict(float)
-                                    for lista_motivos in df_group['top_motivos'].dropna():
-                                        for motivo, perc in lista_motivos:
-                                            motivos_agg[motivo] += perc
-                                    
-                                    top_5 = sorted(motivos_agg.items(), key=lambda item: item[1], reverse=True)[:5]
-                                    
-                                    return pd.Series({
-                                        'taxa_improdutividade_media': improd_ponderada,
-                                        'total_servicos_hist': total_servicos_sum,
-                                        'menor_data_hist': df_group['menor_data'].min(),
-                                        'maior_data_hist': df_group['maior_data'].max(),
-                                        'top_5_motivos_agregados': top_5
-                                    })
-                                
-                                resumo_improd = gdf_hulls_com_improd.groupby('cluster').apply(aggregate_improd)
-                                gdf_hulls = gdf_hulls.merge(resumo_improd, on='cluster', how='left')
-                                gdf_hulls['tooltip_html'] = gdf_hulls.apply(gerar_tooltip_html, axis=1)
-
-                                tooltip_obj = folium.GeoJsonTooltip(fields=['tooltip_html'], aliases=[''], localize=True, sticky=True, style="""
-                                    background-color: #F0EFEF;
-                                    border: 2px solid black;
-                                    border-radius: 3px;
-                                    box-shadow: 3px;
-                                """)
-                            else:
-                                tooltip_obj = folium.GeoJsonTooltip(fields=['contagem', 'area_km2', 'densidade'], aliases=['Nº de Cortes:', 'Área (km²):', 'Cortes/km²:'], localize=True, sticky=True)
+                            tooltip_obj = folium.GeoJsonTooltip(
+                                fields=['contagem', 'area_km2', 'densidade'], 
+                                aliases=['Nº de Cortes:', 'Área (km²):', 'Cortes/km²:'],
+                                localize=True, sticky=True
+                            )
 
                             folium.GeoJson(
                                 gdf_hulls, 
@@ -696,16 +630,15 @@ if uploaded_file is not None:
                                 tooltip=tooltip_obj
                             ).add_to(m_hull)
                             st_folium(m_hull, use_container_width=True, height=700)
-                        except Exception as e: st.error(f"Não foi possível desenhar os contornos ou analisar a improdutividade. Erro: {e}")
+                        except Exception as e: st.error(f"Não foi possível desenhar os contornos. Erro: {e}")
                     else: st.warning("Nenhum cluster para desenhar.")
             tab_index += 1
 
             if df_metas is not None:
                 with tabs[tab_index]: # Pacotes de Trabalho
-                    st.subheader("Simulação de Pacotes de Trabalho com Análise Histórica")
-                    st.write("Visualização dos pacotes de trabalho simulados sobre a malha histórica de improdutividade.")
+                    st.subheader("Simulação de Pacotes de Trabalho")
                     if not gdf_alocados_final.empty:
-                        with st.spinner('Gerando simulação e analisando improdutividade...'):
+                        with st.spinner('Gerando simulação...'):
                             cos_simulados = gdf_alocados_final['centro_operativo'].unique()
                             metas_filtradas = df_metas[df_metas['centro_operativo'].isin(cos_simulados)]
 
@@ -731,7 +664,6 @@ if uploaded_file is not None:
                             map_center_pacotes = [gdf_filtrado_base.latitude.mean(), gdf_filtrado_base.longitude.mean()]
                             m_pacotes = folium.Map(location=map_center_pacotes, zoom_start=10)
                             
-                            desenhar_camada_improdutividade(m_pacotes, gdf_improd)
                             desenhar_camadas_kml(m_pacotes, geometrias_kml_dict, kml_laranja_dict)
                             
                             cores_co = {co: color for co, color in zip(gdf_filtrado_base['centro_operativo'].unique(), ['blue', 'green', 'purple', 'orange', 'darkred', 'red', 'lightred', 'beige', 'darkblue', 'darkgreen', 'cadetblue', 'lightgreen', 'pink', 'lightblue', 'lightgray', 'black'])}
@@ -741,32 +673,7 @@ if uploaded_file is not None:
                             gdf_hulls_pacotes = gdf_hulls_pacotes.merge(counts_pacotes, on=['centro_operativo', 'pacote_id'])
                             gdf_hulls_pacotes['area_km2'] = (gdf_hulls_pacotes.to_crs("EPSG:3857").geometry.area / 1_000_000).round(2)
                             
-                            if gdf_improd is not None:
-                                # --- INÍCIO DO BLOCO DE CORREÇÃO E DEBUG ---
-                                # 1. Garante que ambos os GDFs estejam no mesmo CRS de forma explícita
-                                gdf_hulls_pacotes_proj = gdf_hulls_pacotes.to_crs("EPSG:4326")
-                                gdf_improd_proj = gdf_improd.to_crs("EPSG:4326")
-
-                                # 2. Remove geometrias inválidas ou vazias
-                                gdf_hulls_pacotes_valid = gdf_hulls_pacotes_proj[gdf_hulls_pacotes_proj.is_valid & ~gdf_hulls_pacotes_proj.is_empty]
-                                gdf_improd_valid = gdf_improd_proj[gdf_improd_proj.is_valid & ~gdf_improd_proj.is_empty]
-                                
-                                # 3. Realiza a junção espacial com os dados validados
-                                gdf_pacotes_com_improd = gpd.sjoin(gdf_hulls_pacotes_valid, gdf_improd_valid, how="left", predicate="intersects")
-                                # --- FIM DO BLOCO DE CORREÇÃO E DEBUG ---
-
-                                resumo_improd_pacotes = gdf_pacotes_com_improd.groupby(['centro_operativo', 'pacote_id']).apply(aggregate_improd)
-                                gdf_hulls_pacotes = gdf_hulls_pacotes.merge(resumo_improd_pacotes, on=['centro_operativo', 'pacote_id'], how='left')
-                                gdf_hulls_pacotes['tooltip_html'] = gdf_hulls_pacotes.apply(gerar_tooltip_html, axis=1)
-
-                                tooltip_pacotes = folium.GeoJsonTooltip(fields=['tooltip_html'], aliases=[''], localize=True, sticky=True, style="""
-                                    background-color: #F0EFEF;
-                                    border: 2px solid black;
-                                    border-radius: 3px;
-                                    box-shadow: 3px;
-                                """)
-                            else:
-                                tooltip_pacotes = folium.GeoJsonTooltip(fields=['centro_operativo', 'pacote_id', 'contagem', 'area_km2'], aliases=['CO:', 'Pacote:', 'Nº de Serviços:', 'Área (km²):'], localize=True, sticky=True)
+                            tooltip_pacotes = folium.GeoJsonTooltip(fields=['centro_operativo', 'pacote_id', 'contagem', 'area_km2'], aliases=['CO:', 'Pacote:', 'Nº de Serviços:', 'Área (km²):'], localize=True, sticky=True)
 
                             folium.GeoJson(gdf_hulls_pacotes, style_function=lambda feature: {'color': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'weight': 2.5, 'fillColor': cores_co.get(feature['properties']['centro_operativo'], 'gray'), 'fillOpacity': 0.25}, tooltip=tooltip_pacotes).add_to(m_pacotes)
                             for _, row in gdf_alocados_final.iterrows(): folium.CircleMarker(location=[row['latitude'], row['longitude']], radius=3, color=cores_co.get(row['centro_operativo'], 'gray'), fill=True, fill_opacity=1, popup=f"Pacote: {row['pacote_id']}").add_to(m_pacotes)
