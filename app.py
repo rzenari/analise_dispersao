@@ -350,13 +350,24 @@ def desenhar_camada_improdutividade(map_object, gdf_improd):
     if gdf_improd is None or gdf_improd.empty:
         return
     
+    # Cria uma cópia para evitar modificar o dataframe original
+    gdf_for_map = gdf_improd.copy()
+
+    # >>> INÍCIO DA CORREÇÃO <<<
+    # Converte colunas de Timestamp para string, pois não são serializáveis para JSON
+    if 'menor_data' in gdf_for_map.columns:
+        gdf_for_map['menor_data'] = gdf_for_map['menor_data'].dt.strftime('%d/%m/%Y')
+    if 'maior_data' in gdf_for_map.columns:
+        gdf_for_map['maior_data'] = gdf_for_map['maior_data'].dt.strftime('%d/%m/%Y')
+    # >>> FIM DA CORREÇÃO <<<
+
     # Define a escala de cores de verde (0%) para vermelho (100%)
     colormap = linear.YlOrRd_09.scale(0, 100)
     colormap.caption = 'Taxa de Improdutividade Histórica (%)'
     
     # Adiciona a camada de hexágonos coloridos
     folium.GeoJson(
-        gdf_improd,
+        gdf_for_map, # Usa a cópia com as datas formatadas como texto
         style_function=lambda feature: {
             'fillColor': colormap(feature['properties']['taxa_improdutividade_%']),
             'color': 'black',
